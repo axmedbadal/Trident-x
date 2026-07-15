@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>TRIDENT-X</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0b0f19;color:#e2e8f0;padding:1rem}
+header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;padding-bottom:.5rem;margin-bottom:1rem}
+h1{font-size:1.2rem;color:#38bdf8}
+.badge{padding:.2rem .6rem;border-radius:999px;font-size:.75rem;background:#334155}
+.badge.ok{background:#10b981;color:#000}
+.badge.warn{background:#f59e0b;color:#000}
+.badge.err{background:#ef4444;color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-bottom:1rem}
+.card{background:#1e293b;border-radius:.5rem;padding:1rem}
+.card h2{font-size:.9rem;margin-bottom:.6rem;color:#94a3b8;border-bottom:1px solid #334155;padding-bottom:.3rem}
+.row{display:flex;justify-content:space-between;font-size:.85rem;padding:.2rem 0}
+.row .lbl{color:#94a3b8}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th,td{text-align:left;padding:.3rem .4rem;border-bottom:1px solid #334155}
+th{color:#64748b;font-weight:600}
+.btn{background:#38bdf8;border:none;color:#000;padding:.5rem .8rem;border-radius:.3rem;cursor:pointer;font-weight:600;font-size:.8rem;margin-right:.4rem}
+.btn.danger{background:#ef4444;color:#fff}
+.btn.warn{background:#f59e0b}
+canvas{width:100%;height:100px;background:#0f172a;border-radius:.3rem}
+.confidence-bar{height:6px;background:#334155;border-radius:3px;overflow:hidden;margin-top:3px}
+.confidence-fill{height:100%;background:#38bdf8;border-radius:3px;transition:width .3s}
+.tp-tier{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:2px;background:#334155}
+.tp-tier.hit{background:#10b981}
+.signal-buy{color:#10b981}
+.signal-sell{color:#ef4444}
+.signal-neutral{color:#64748b}
+@media(max-width:600px){.grid{grid-template-columns:1fr}h1{font-size:1rem}}
+</style>
+</head>
+<body>
+<header>
+<h1>TRIDENT-X</h1>
+<div>
+<span id="conn" class="badge warn">Connecting...</span>
+<span id="mode" class="badge ok">PAPER</span>
+<span id="pauseBadge" class="badge" style="display:none">PAUSED</span>
+</div>
+</header>
+
+<div class="grid">
+<!-- 3-Pair Overview -->
+<div class="card" style="grid-column:span 2">
+<h2>Market Overview</h2>
+<table>
+<thead><tr><th>Pair</th><th>Price</th><th>24h</th><th>Regime</th><th>Signal</th><th>Confidence</th></tr></thead>
+<tbody id="pairBody"><tr><td colspan="6">Loading...</td></tr></tbody>
+</table>
+</div>
+<!-- Risk Dashboard -->
+<div class="card">
+<h2>Risk State</h2>
+<div class="row"><span class="lbl">Equity</span><span id="equity">-</span></div>
+<div class="row"><span class="lbl">Peak</span><span id="peak">-</span></div>
+<div class="row"><span class="lbl">Daily PnL</span><span id="daily">-</span></div>
+<div class="row"><span class="lbl">Drawdown</span><span id="dd">-</span></div>
+<div class="row"><span class="lbl">Max DD</span><span id="maxdd">-</span></div>
+<div class="row"><span class="lbl">Band</span><span id="band">-</span></div>
+<div class="row"><span class="lbl">Circuit Breaker</span><span id="circuit">-</span></div>
+<div class="row"><span class="lbl">Consec Losses</span><span id="closs">-</span></div>
+</div>
+</div>
+
+<div class="grid">
+<!-- Open Positions -->
+<div class="card" style="grid-column:span 2">
+<h2>Open Positions</h2>
+<table>
+<thead><tr><th>Sym</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Size</th><th>PnL</th><th>Time</th><th>TP Progress</th></tr></thead>
+<tbody id="posBody"><tr><td colspan="9">No open positions</td></tr></tbody>
+</table>
+</div>
+<!-- Controls -->
+<div class="card">
+<h2>Controls</h2>
+<div style="margin-bottom:.5rem">
+<button class="btn warn" onclick="post('/api/override/pause')">Pause</button>
+<button class="btn" onclick="post('/api/override/resume')">Resume</button>
+</div>
+<button class="btn danger" onclick="if(confirm('Flatten ALL?'))post('/api/override/flatten')">Flatten All</button>
+</div>
+</div>
+
+<div class="grid">
+<!-- Signal History -->
+<div class="card">
+<h2>Signal History (Last 20)</h2>
+<table>
+<thead><tr><th>Time</th><th>Sym</th><th>Dir</th><th>Conf</th><th>Gate</th><th>Reason</th></tr></thead>
+<tbody id="sigBody"><tr><td colspan="6">No signals</td></tr></tbody>
+</table>
+</div>
+<!-- Engine Performance -->
+<div class="card">
+<h2>Engine Performance</h2>
+<table>
+<thead><tr><th>Engine</th><th>Regime</th><th>Signals</th><th>Gate%</th><th>Win%</th><th>Status</th></tr></thead>
+<tbody id="engBody"><tr><td colspan="6">No data</td></tr></tbody>
+</table>
+</div>
+<!-- Regime Timeline -->
+<div class="card">
+<h2>Regime Timeline (24h)</h2>
+<canvas id="regimeCanvas"></canvas>
+</div>
+</div>
+
+<script>
+let ws,reconnectTimer,countdown=1;
+const canvas=document.getElementById('regimeCanvas'),ctx=canvas.getContext('2d');
+function resize(){canvas.width=canvas.clientWidth;canvas.height=canvas.clientHeight}
+window.addEventListener('resize',resize);resize();
+
+function connect(){
+ws=new WebSocket('ws://'+location.host+'/ws');
+ws.onopen=()=>{document.getElementById('conn').textContent='Live';document.getElementById('conn').className='badge ok';clearTimeout(reconnectTimer);countdown=1};
+ws.onmessage=e=>{try{update(JSON.parse(e.data))}catch(x){}};
+ws.onclose=()=>{document.getElementById('conn').textContent='Reconnecting '+countdown+'s';document.getElementById('conn').className='badge warn';schedule()};
+ws.onerror=()=>{};
+}
+function schedule(){setTimeout(()=>{countdown=Math.min(countdown+1,30);connect()},countdown*1000)}
+
+function update(d){
+  // Risk
+  document.getElementById('equity').textContent='$'+(d.equity||0).toFixed(2);
+  document.getElementById('peak').textContent='$'+(d.peak_equity||0).toFixed(2);
+  document.getElementById('daily').textContent=(d.daily_pnl*100).toFixed(2)+'%';
+  document.getElementById('dd').textContent=(d.current_dd*100).toFixed(2)+'%';
+  document.getElementById('maxdd').textContent=(d.max_dd*100).toFixed(2)+'%';
+  document.getElementById('band').textContent=d.band||'-';
+  document.getElementById('circuit').textContent=d.risk||'-';
+  document.getElementById('closs').textContent=d.consecutive_losses||0;
+  document.getElementById('mode').textContent=d.paper?'PAPER':'LIVE';
+  document.getElementById('mode').className=d.paper?'badge ok':'badge err';
+  document.getElementById('pauseBadge').style.display=d.paused?'inline':'none';
+
+  // 3-pair overview
+  const pb=document.getElementById('pairBody');pb.innerHTML='';
+  const pairs=d.pairs||[];
+  pairs.forEach(p=>{
+    const tr=document.createElement('tr');
+    const sigClass=p.signal==='BUY'?'signal-buy':p.signal==='SELL'?'signal-sell':'signal-neutral';
+    tr.innerHTML=`<td>${p.symbol}</td><td>$${p.price.toFixed(2)}</td><td>${p.change24h}</td><td>${p.regime}</td><td class="${sigClass}">${p.signal}</td><td><div class="confidence-bar"><div class="confidence-fill" style="width:${(p.confidence*100).toFixed(0)}%"></div></div></td>`;
+    pb.appendChild(tr);
+  });
+
+  // Positions
+  const tb=document.getElementById('posBody');tb.innerHTML='';
+  if(d.positions&&d.positions.length){
+    d.positions.forEach(p=>{
+      const tr=document.createElement('tr');
+      const tpProg=[p.tp1_hit,p.tp2_hit,p.tp3_hit,p.tp4_hit,p.tp5_hit].map((h,i)=>`<span class="tp-tier ${h?'hit':''}"></span>`).join('');
+      const age=Math.floor((Date.now()-p.opened_at)/60000);
+      tr.innerHTML=`<td>${p.symbol}</td><td>${p.direction}</td><td>${p.entry_price.toFixed(4)}</td><td>${p.stop_loss.toFixed(4)}</td><td>${p.take_profit.toFixed(4)}</td><td>$${p.size_usd.toFixed(0)}</td><td>${p.pnl?pnlColor(p.pnl):'-'}</td><td>${age}m</td><td>${tpProg}</td>`;
+      tb.appendChild(tr);
+    });
+  }else{tb.innerHTML='<tr><td colspan="9">No open positions</td></tr>'}
+
+  // Signals
+  const sb=document.getElementById('sigBody');sb.innerHTML='';
+  const sigs=d.signals||[];
+  if(sigs.length){
+    sigs.forEach(s=>{
+      const tr=document.createElement('tr');
+      const t=new Date(s.timestamp).toLocaleTimeString();
+      const cls=s.direction==='BUY'?'signal-buy':s.direction==='SELL'?'signal-sell':'signal-neutral';
+      const gate=s.passed_gate?'PASS':'FAIL';
+      tr.innerHTML=`<td>${t}</td><td>${s.symbol}</td><td class="${cls}">${s.direction}</td><td>${(s.confidence*100).toFixed(0)}%</td><td>${gate}</td><td>${s.gate_reason||''}</td>`;
+      sb.appendChild(tr);
+    });
+  }else{sb.innerHTML='<tr><td colspan="6">No signals</td></tr>'}
+
+  // Engine perf
+  const eb=document.getElementById('engBody');eb.innerHTML='';
+  const eng=d.engine_perf||[];
+  if(eng.length){
+    eng.forEach(e=>{
+      const tr=document.createElement('tr');
+      const status=e.disabled?'DISABLED':'ACTIVE';
+      tr.innerHTML=`<td>${e.engine}</td><td>${e.regime}</td><td>${e.total_signals}</td><td>${(e.gate_pass_rate*100).toFixed(0)}%</td><td>${(e.win_rate*100).toFixed(0)}%</td><td>${status}</td>`;
+      eb.appendChild(tr);
+    });
+  }else{eb.innerHTML='<tr><td colspan="6">No data</td></tr>'}
+
+  // Regime timeline
+  drawRegime(d.regimes||[]);
+}
+
+function pnlColor(v){return v>=0?`<span style="color:#10b981">+$${v.toFixed(2)}</span>`:`<span style="color:#ef4444">-$${Math.abs(v).toFixed(2)}</span>`}
+
+function drawRegime(regimes){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!regimes.length){ctx.fillStyle='#64748b';ctx.fillText('No data',10,50);return}
+  const colors={'TRENDING_UP':'#22c55e','TRENDING_DOWN':'#ef4444','MEAN_REVERTING':'#f59e0b','ACCUMULATION':'#3b82f6','DISTRIBUTION':'#a855f7'};
+  const w=canvas.width/regimes.length;
+  regimes.forEach((r,i)=>{ctx.fillStyle=colors[r.regime]||'#64748b';ctx.fillRect(i*w,10,w-1,canvas.height-20)});
+  ctx.fillStyle='#e2e8f0';ctx.font='10px sans-serif';
+  if(regimes.length>0){ctx.fillText(regimes[0].regime,4,canvas.height-4)}
+}
+
+async function post(url){try{await fetch(url,{method:'POST'})}catch(e){console.error(e)}}
+connect();
+// Periodically fetch signals/history
+setInterval(async()=>{
+  try{
+    const r=await fetch('/api/state');
+    if(r.ok){
+      const d=await r.json();
+      // merge extra data
+      const sr=await fetch('/api/signals?limit=20');
+      if(sr.ok)d.signals=await sr.json();
+      update(d);
+    }
+  }catch(e){}
+},10000);
+</script>
+</body>
+</html>

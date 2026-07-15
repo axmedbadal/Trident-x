@@ -1,0 +1,16 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.sqlite
+*.sqlite3
+*.db
+*.log
+logs/*.log*
+test_output.txt
+test_error.txt
+.vscode/
+.idea/
+killswitch.json
