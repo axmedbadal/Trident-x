@@ -81,13 +81,24 @@ class CorrelationRegimeFilter:
             if not np.isnan(corr):
                 correlations[PAIR_TO_SYMBOL.get(sym, sym)] = float(corr)
 
-        sol_corr = correlations.get("SOL", 0.0)
-        ada_corr = correlations.get("ADA", 0.0)
-        xrp_corr = correlations.get("XRP", 0.0)
+        sol_corr = correlations.get("SOL")
+        ada_corr = correlations.get("ADA")
+        xrp_corr = correlations.get("XRP")
 
         suppressed: List[str] = []
         status = "NORMAL"
         alert = "GREEN"
+
+        # If we cannot compute any correlations, stay neutral
+        if sol_corr is None or ada_corr is None or xrp_corr is None:
+            self._regime = {
+                "status": "UNKNOWN",
+                "alert_level": "GREEN",
+                "suppressed_pairs": [],
+                "correlations": correlations,
+            }
+            self._last_update = time.time()
+            return
 
         # Condition A: SOL decoupling from BTC while ADA/XRP stay correlated
         if sol_corr < 0.40 and ada_corr > 0.60 and xrp_corr > 0.60:

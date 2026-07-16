@@ -135,7 +135,8 @@ class FeatureEngineer:
         if periods_24h > 0 and periods_7d > 0:
             vol_24h = v.iloc[-periods_24h:].sum()
             vol_7d_sma = v.iloc[-periods_7d:].mean() * periods_24h
-            _set("vol_24h_vs_7d", vol_24h / vol_7d_sma.replace(0, 1e-9))
+            vol_7d_sma = float(vol_7d_sma) if not hasattr(vol_7d_sma, "replace") else vol_7d_sma.replace(0, 1e-9)
+            _set("vol_24h_vs_7d", vol_24h / max(vol_7d_sma, 1e-9))
         else:
             last["vol_24h_vs_7d"] = 1.0
         obv = ((np.sign(c.diff()) * v).cumsum())

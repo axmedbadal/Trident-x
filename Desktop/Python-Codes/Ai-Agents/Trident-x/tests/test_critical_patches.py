@@ -10,6 +10,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pytest
 
 
+def _run(coro):
+    """Run an async coroutine in a fresh event loop and close it."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 # ── Fix 2.1: Meta-labeler cold start ──────────────────────────────────────
 class TestMetaLabelerColdStart:
     def test_cold_start_returns_default_trending(self):
@@ -61,7 +70,7 @@ class TestPartialFillTracking:
     def test_remaining_size_usd_on_open(self):
         from execution.fills import PaperFill
         fill = PaperFill()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = _run(
             fill.fill_entry("SOLUSDT", "BUY", 100.0, 1000.0, "TRENDING_UP")
         )
         assert result["filled"] is True
@@ -70,7 +79,7 @@ class TestPartialFillTracking:
     def test_paper_fill_applies_slippage(self):
         from execution.fills import PaperFill, SLIPPAGE
         fill = PaperFill()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = _run(
             fill.fill_entry("SOLUSDT", "BUY", 100.0, 1000.0, "VOLATILE")
         )
         expected_slippage = SLIPPAGE["VOLATILE"]
@@ -83,7 +92,7 @@ class TestLimitOrderCancelReplace:
     def test_backtest_fill_submit_order(self):
         from execution.fills import BacktestFill
         fill = BacktestFill()
-        order = asyncio.get_event_loop().run_until_complete(
+        order = _run(
             fill.submit_order("SOLUSDT", "BUY", 10.0, "LIMIT", 100.0)
         )
         assert order.status == "NEW"
@@ -91,10 +100,10 @@ class TestLimitOrderCancelReplace:
     def test_backtest_fill_cancel_order(self):
         from execution.fills import BacktestFill
         fill = BacktestFill()
-        order = asyncio.get_event_loop().run_until_complete(
+        order = _run(
             fill.submit_order("SOLUSDT", "BUY", 10.0, "LIMIT", 100.0)
         )
-        cancelled = asyncio.get_event_loop().run_until_complete(
+        cancelled = _run(
             fill.cancel_order(order.id)
         )
         assert cancelled is True
@@ -102,7 +111,7 @@ class TestLimitOrderCancelReplace:
     def test_market_order_fills_immediately(self):
         from execution.fills import BacktestFill
         fill = BacktestFill()
-        order = asyncio.get_event_loop().run_until_complete(
+        order = _run(
             fill.submit_order("SOLUSDT", "BUY", 10.0, "MARKET", 100.0)
         )
         assert order.status == "FILLED"
@@ -319,11 +328,10 @@ class TestCorrelationRegime:
             "correlations": {},
         }
         filt._last_update = 9999999999
-        suppressed, reason = asyncio.get_event_loop().run_until_complete(filt.is_suppressed("SOLUSDT"))
+        suppressed, reason = _run(filt.is_suppressed("SOLUSDT"))
         assert not suppressed
 
     def test_sol_decoupling_suppresses_sol(self):
-        import asyncio
         from risk.correlation_regime import CorrelationRegimeFilter
         filt = CorrelationRegimeFilter()
         filt._regime = {
@@ -333,7 +341,7 @@ class TestCorrelationRegime:
             "correlations": {"SOL": 0.2, "ADA": 0.7, "XRP": 0.7},
         }
         filt._last_update = 9999999999
-        suppressed, reason = asyncio.get_event_loop().run_until_complete(filt.is_suppressed("SOLUSDT"))
+        suppressed, reason = _run(filt.is_suppressed("SOLUSDT"))
         assert suppressed
         assert "SOL_DECOUPLING" in reason
 
