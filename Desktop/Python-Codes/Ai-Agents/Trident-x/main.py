@@ -542,6 +542,20 @@ async def graceful_shutdown(sig_name: str = "SIGTERM"):
             await ws_client.stop()
         except Exception:
             pass
+    # Close shared REST client to avoid unclosed aiohttp sessions
+    global _context_rest_client
+    if _context_rest_client:
+        try:
+            await _context_rest_client.close()
+        except Exception:
+            pass
+    # Close correlation regime REST client
+    from risk.correlation_regime import correlation_regime
+    if correlation_regime._rest_client:
+        try:
+            await correlation_regime._rest_client.close()
+        except Exception:
+            pass
     logger.critical("Shutdown complete.")
 
 

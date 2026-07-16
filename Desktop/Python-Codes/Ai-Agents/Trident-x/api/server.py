@@ -40,6 +40,17 @@ def index():
     return HTMLResponse(content=_dashboard_html, status_code=200)
 
 
+@app.get("/api/health")
+def api_health():
+    return {
+        "status": "ok",
+        "paper": settings.PAPER_TRADING,
+        "risk_state": circuit_breaker.state,
+        "paused": _paused,
+        "timestamp": int(time.time() * 1000),
+    }
+
+
 @app.get("/api/state")
 def api_state(auth=Depends(_verify_api_key)):
     return _state_payload()

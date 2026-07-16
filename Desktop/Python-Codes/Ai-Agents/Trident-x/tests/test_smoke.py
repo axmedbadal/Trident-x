@@ -79,6 +79,16 @@ class TestSystemSmoke:
         assert app is not None
         assert callable(start_server)
 
+    def test_api_health_endpoint(self):
+        from api.server import app
+        from fastapi.testclient import TestClient
+        client = TestClient(app)
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "timestamp" in data
+
 
 class TestAsyncSmoke:
     """Async smoke tests requiring an event loop."""
