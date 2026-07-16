@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from typing import List, Dict
 
 
@@ -78,8 +79,7 @@ class TridentConfig(BaseSettings):
     SNIPER_ENTRY_MISS_PCT: float = 0.02
     SNIPER_USE_MTF_ALIGNMENT: bool = True
 
-    class Config:
-        env_file = ".env"
+    model_config = ConfigDict(env_file=".env")
 
 
 settings = TridentConfig()
