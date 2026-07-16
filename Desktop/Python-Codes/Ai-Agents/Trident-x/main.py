@@ -536,12 +536,12 @@ async def main():
     # Fix 3.3: Multi-instance protection
     _acquire_instance_lock()
 
-    logger.info("═" * 60)
-    logger.info("  TRIDENT-X — Ultimate Quant Trading System")
+    logger.info("=" * 60)
+    logger.info("  TRIDENT-X - Ultimate Quant Trading System")
     logger.info(f"  Pairs: {settings.PAIRS} | TF: {settings.PRIMARY_TF}")
     logger.info(f"  Paper Trading: {settings.PAPER_TRADING}")
     logger.info(f"  Initial Equity: ${settings.INITIAL_EQUITY:,.2f}")
-    logger.info("═" * 60)
+    logger.info("=" * 60)
 
     # Load state from SQLite
     execution_manager.load_positions()

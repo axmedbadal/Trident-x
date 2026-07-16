@@ -68,7 +68,7 @@ class BinanceRestClient:
         return candles
 
     async def fetch_funding_rate(self, symbol: str) -> Optional[float]:
-        url = f"{settings.BINANCE_REST_URL}/fapi/v1/fundingRate"
+        url = f"{settings.BINANCE_FUTURES_URL}/fapi/v1/fundingRate"
         params = {"symbol": symbol.upper(), "limit": 1}
         data = await self._rate_limited_get(url, params)
         if data and isinstance(data, list) and len(data) > 0:

@@ -43,6 +43,7 @@ class TridentConfig(BaseSettings):
 
     BINANCE_WS_URL: str = "wss://stream.binance.com:9443/ws"
     BINANCE_REST_URL: str = "https://api.binance.com"
+    BINANCE_FUTURES_URL: str = "https://fapi.binance.com"
     BINANCE_API_KEY: str = ""
     BINANCE_SECRET: str = ""
 
