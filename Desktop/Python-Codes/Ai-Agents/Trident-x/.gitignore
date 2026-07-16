@@ -6,7 +6,9 @@ __pycache__/
 .Python
 *.sqlite
 *.sqlite3
+*.sqlite-*
 *.db
+trident_x.lock
 *.log
 logs/*.log*
 test_output.txt
