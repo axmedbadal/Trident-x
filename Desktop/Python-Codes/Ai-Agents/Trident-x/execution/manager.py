@@ -123,6 +123,42 @@ class ExecutionManager:
                 continue
             close = features.get("close", 0.0)
             direction = pos["direction"]
+            atr_val = features.get("atr_14", 0.0)
+
+            # Phase 4: Profit-triggered trailing stop
+            unrealized_pct = self._unrealized_pct(pos, close)
+            rsi_val = features.get("rsi_14", 50)
+            if unrealized_pct is not None and atr_val > 0:
+                pos["highest_price"] = max(pos.get("highest_price", pos["entry_price"]), close)
+                # Activate trailing stop if profitable with RSI confirmation, or mandatory at +5%
+                if (
+                    (unrealized_pct > 0.02 and 55 < rsi_val < 75) or
+                    unrealized_pct > 0.05
+                ):
+                    pos["trailing_stop_active"] = True
+
+                if pos.get("trailing_stop_active"):
+                    highest = pos["highest_price"]
+                    trail_dist = 1.5 * atr_val
+                    if direction == "BUY":
+                        ts_price = highest - trail_dist
+                        hard_floor = pos["entry_price"] * 0.95
+                        ts_price = max(ts_price, hard_floor)
+                        pos["trailing_stop_price"] = max(pos.get("trailing_stop_price", 0.0), ts_price)
+                        if close <= pos["trailing_stop_price"]:
+                            await self._close(pos, close, regime, "MOMENTUM_TRAILING_STOP")
+                            self._remove(pos)
+                            continue
+                    else:
+                        ts_price = highest + trail_dist
+                        hard_floor = pos["entry_price"] * 1.05
+                        ts_price = min(ts_price, hard_floor)
+                        pos["trailing_stop_price"] = min(pos.get("trailing_stop_price", float("inf")), ts_price)
+                        if close >= pos["trailing_stop_price"]:
+                            await self._close(pos, close, regime, "MOMENTUM_TRAILING_STOP")
+                            self._remove(pos)
+                            continue
+
             exit_pct, reason, updated = partial_exit.check(pos, features)
             if exit_pct > 0:
                 await self._partial_close(pos, close, regime, reason, exit_pct)
@@ -138,8 +174,7 @@ class ExecutionManager:
                         self.positions[idx]["remaining_size_usd"] = pos["remaining_size_usd"]
                 continue
 
-            # Trailing stop activation
-            atr_val = features.get("atr_14", 0.0)
+            # Trailing stop activation based on TP hits
             if atr_val > 0:
                 tp_count = sum(1 for i in range(1, 6) if updated.get(f"tp{i}_hit", 0))
                 if tp_count >= 3:
@@ -184,6 +219,13 @@ class ExecutionManager:
             elif momentum_rev:
                 await self._close(pos, close, regime, "MOMENTUM_REVERSAL")
                 self._remove(pos)
+
+    def _unrealized_pct(self, pos: Dict, close: float) -> Optional[float]:
+        if close <= 0 or pos["entry_price"] <= 0:
+            return None
+        if pos["direction"] == "BUY":
+            return (close - pos["entry_price"]) / pos["entry_price"]
+        return (pos["entry_price"] - close) / pos["entry_price"]
 
     async def _partial_close(self, pos: Dict, price: float, regime: str, reason: str, pct: float):
         remaining = pos.get("remaining_size_usd", pos["size_usd"])

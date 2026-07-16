@@ -129,6 +129,7 @@ from risk.circuit_breaker import circuit_breaker
 from risk.governor import governor
 from risk.position_sizer import position_sizer
 from risk.portfolio_risk import portfolio_risk
+from risk.correlation_regime import correlation_regime
 
 # ── Execution ──────────────────────────────────────────────────────────────
 from execution.manager import execution_manager
@@ -266,6 +267,18 @@ async def warmup():
                         logger.info(f"Warmup {sym} {tf}: fetched {len(candles)} candles via REST")
                 except Exception as e:
                     logger.warning(f"Warmup REST fetch failed {sym} {tf}: {e}")
+    # Phase 3: Load BTCUSDT daily data for correlation regime filter
+    try:
+        btc_cached = state_manager.load_candles("BTCUSDT", "1d", 40)
+        if btc_cached:
+            logger.info(f"Warmup BTCUSDT 1d: {len(btc_cached)} cached candles")
+        else:
+            btc_candles = await _context_rest_client.fetch_klines("BTCUSDT", "1d", 40)
+            if btc_candles:
+                state_manager.save_candles(btc_candles)
+                logger.info(f"Warmup BTCUSDT 1d: fetched {len(btc_candles)} candles via REST")
+    except Exception as e:
+        logger.warning(f"Warmup BTC fetch failed: {e}")
 
 
 # Fix 1.4: Context timeframe refresh via REST every 5m
@@ -350,13 +363,19 @@ async def on_candle(candle: Dict):
 
     # Consensus
     combined = consensus.combine([sig_smc, sig_mom, sig_mr, sig_sniper], regime)
+    combined["symbol"] = symbol
 
     # Meta-labeler
     meta_prob = meta_labeler.predict(symbol, feat_5m)
 
-    # Gate
-    data_age = time.time() * 1000 - candle["timestamp"]
-    passed, reason = gate.evaluate(combined, feat_5m, mtf_signals, meta_prob, data_age)
+    # Phase 3: Correlation regime filter
+    suppressed, regime_reason = await correlation_regime.is_suppressed(symbol)
+    if suppressed:
+        passed, reason = False, regime_reason
+    else:
+        # Gate
+        data_age = time.time() * 1000 - candle["timestamp"]
+        passed, reason = gate.evaluate(combined, feat_5m, mtf_signals, meta_prob, data_age)
 
     # Engine auto-disable tracking
     for sig in [sig_smc, sig_mom, sig_mr, sig_sniper]:

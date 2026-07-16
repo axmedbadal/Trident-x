@@ -262,6 +262,97 @@ class TestSniperStrategy:
         assert abs(sum(consensus._dynamic_weights.values()) - 1.0) < 0.01
 
 
+# ── Vijackic Adaptation: Phase 1 Z-score Gate ─────────────────────────────
+class TestZScoreGate:
+    def test_blocks_long_overextended(self):
+        from council.gate import SignalIntegrityGate
+        gate = SignalIntegrityGate()
+        signal = {"direction": "BUY", "confidence": 0.9, "regime": "TRENDING_UP", "engines_agreeing": 2}
+        features = {"vol_sma20_ratio": 2.0, "atr_pct": 1.0, "z_score_20": 1.8, "vol_24h_vs_7d": 2.0}
+        passed, reason = gate.evaluate(signal, features, {}, 0.7, 0)
+        assert not passed
+        assert "mean_reversion_block_long" in reason
+
+    def test_blocks_short_overextended(self):
+        from council.gate import SignalIntegrityGate
+        gate = SignalIntegrityGate()
+        signal = {"direction": "SELL", "confidence": 0.9, "regime": "TRENDING_DOWN", "engines_agreeing": 2}
+        features = {"vol_sma20_ratio": 2.0, "atr_pct": 1.0, "z_score_20": -1.8, "vol_24h_vs_7d": 2.0}
+        passed, reason = gate.evaluate(signal, features, {}, 0.7, 0)
+        assert not passed
+        assert "mean_reversion_block_short" in reason
+
+    def test_allows_when_volume_low(self):
+        from council.gate import SignalIntegrityGate
+        gate = SignalIntegrityGate()
+        signal = {"direction": "BUY", "confidence": 0.9, "regime": "TRENDING_UP", "engines_agreeing": 2}
+        features = {"vol_sma20_ratio": 2.0, "atr_pct": 1.0, "z_score_20": 1.8, "vol_24h_vs_7d": 1.0}
+        passed, reason = gate.evaluate(signal, features, {"15m": "BUY", "1h": "BUY"}, 0.7, 0)
+        assert passed
+
+
+# ── Vijackic Adaptation: Phase 2 ATR Ranking ──────────────────────────────
+class TestATRRanking:
+    def test_position_sizer_has_atr_multiplier(self):
+        from risk.position_sizer import PositionSizer
+        sizer = PositionSizer()
+        mult = sizer._atr_rank_multiplier("SOLUSDT")
+        assert 0.5 <= mult <= 1.0
+
+    def test_atr_rankings_computed(self):
+        from risk.position_sizer import PositionSizer
+        sizer = PositionSizer()
+        sizer._recalculate_atr_rankings()
+        assert len(sizer._atr_rankings) <= 3
+
+
+# ── Vijackic Adaptation: Phase 3 Correlation Regime ───────────────────────
+class TestCorrelationRegime:
+    def test_normal_regime_no_suppression(self):
+        import asyncio
+        from risk.correlation_regime import CorrelationRegimeFilter
+        filt = CorrelationRegimeFilter()
+        filt._regime = {
+            "status": "NORMAL",
+            "alert_level": "GREEN",
+            "suppressed_pairs": [],
+            "correlations": {},
+        }
+        filt._last_update = 9999999999
+        suppressed, reason = asyncio.get_event_loop().run_until_complete(filt.is_suppressed("SOLUSDT"))
+        assert not suppressed
+
+    def test_sol_decoupling_suppresses_sol(self):
+        import asyncio
+        from risk.correlation_regime import CorrelationRegimeFilter
+        filt = CorrelationRegimeFilter()
+        filt._regime = {
+            "status": "SOL_DECOUPLING",
+            "alert_level": "YELLOW",
+            "suppressed_pairs": ["SOLUSDT"],
+            "correlations": {"SOL": 0.2, "ADA": 0.7, "XRP": 0.7},
+        }
+        filt._last_update = 9999999999
+        suppressed, reason = asyncio.get_event_loop().run_until_complete(filt.is_suppressed("SOLUSDT"))
+        assert suppressed
+        assert "SOL_DECOUPLING" in reason
+
+
+# ── Vijackic Adaptation: Phase 4 Momentum Trailing Stop ───────────────────
+class TestMomentumTrailingStop:
+    def test_unrealized_pct_buy(self):
+        from execution.manager import ExecutionManager
+        mgr = ExecutionManager()
+        pos = {"direction": "BUY", "entry_price": 100.0, "size_usd": 1000.0}
+        assert mgr._unrealized_pct(pos, 110.0) == 0.10
+
+    def test_unrealized_pct_sell(self):
+        from execution.manager import ExecutionManager
+        mgr = ExecutionManager()
+        pos = {"direction": "SELL", "entry_price": 100.0, "size_usd": 1000.0}
+        assert mgr._unrealized_pct(pos, 90.0) == 0.10
+
+
 # ── Fill provider factory ─────────────────────────────────────────────────
 class TestFillProviderFactory:
     def test_paper_trading_returns_paper_fill(self):

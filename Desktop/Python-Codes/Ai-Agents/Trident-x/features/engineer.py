@@ -129,6 +129,15 @@ class FeatureEngineer:
         # Volume
         vol_sma20 = v.rolling(20).mean().replace(0, 1e-9)
         _set("vol_sma20_ratio", v / vol_sma20)
+        # Phase 1: 24h vs 7-day volume SMA (approximate using 5m candles)
+        periods_24h = min(288, len(v))
+        periods_7d = min(2016, len(v))
+        if periods_24h > 0 and periods_7d > 0:
+            vol_24h = v.iloc[-periods_24h:].sum()
+            vol_7d_sma = v.iloc[-periods_7d:].mean() * periods_24h
+            _set("vol_24h_vs_7d", vol_24h / vol_7d_sma.replace(0, 1e-9))
+        else:
+            last["vol_24h_vs_7d"] = 1.0
         obv = ((np.sign(c.diff()) * v).cumsum())
         _set("obv", obv)
         vwap = (v * (h + l + c) / 3).cumsum() / v.cumsum().replace(0, 1e-9)
@@ -136,6 +145,11 @@ class FeatureEngineer:
         _set("cvd", (np.sign(c.diff()) * v).cumsum())
         _set("volume_vah", (v * h).rolling(20).sum() / v.rolling(20).sum().replace(0, 1e-9))
         _set("volume_val", (v * l).rolling(20).sum() / v.rolling(20).sum().replace(0, 1e-9))
+
+        # Phase 1: Z-score for mean reversion blocker
+        sma20 = c.rolling(20).mean().replace(0, 1e-9)
+        std20 = c.rolling(20).std().replace(0, 1e-9)
+        _set("z_score_20", (c - sma20) / std20)
 
         # SMC: lagged swing highs/lows, FVG, displacement
         rh = h.rolling(20, center=False).max().shift(1)

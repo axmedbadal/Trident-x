@@ -29,6 +29,17 @@ class SignalIntegrityGate:
         atr_pct = _safe(features, "atr_pct", 0.0)
         if atr_pct < 0.3:
             return False, f"volatility_gate:{atr_pct:.3f}"
+
+        # Phase 1: Mean reversion z-score blocker
+        vol_24h_vs_7d = _safe(features, "vol_24h_vs_7d", 1.0)
+        z_score = _safe(features, "z_score_20", 0.0)
+        if vol_24h_vs_7d >= 1.5:
+            direction = signal.get("direction", "NEUTRAL")
+            if direction == "BUY" and z_score > 1.5:
+                return False, f"mean_reversion_block_long:{z_score:.2f}"
+            if direction == "SELL" and z_score < -1.5:
+                return False, f"mean_reversion_block_short:{z_score:.2f}"
+
         direction = signal["direction"]
         for tf in ["15m", "1h"]:
             ht = mtf_signals.get(tf, "NEUTRAL")
