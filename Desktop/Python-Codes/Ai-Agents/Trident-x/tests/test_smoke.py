@@ -89,6 +89,45 @@ class TestSystemSmoke:
         assert data["status"] == "ok"
         assert "timestamp" in data
 
+    def test_api_monitor_endpoints(self):
+        from api.server import app
+        from fastapi.testclient import TestClient
+        client = TestClient(app)
+        for path in ["/api/monitor/stats", "/api/monitor/logs", "/api/monitor/errors"]:
+            resp = client.get(path)
+            assert resp.status_code == 200, f"{path} returned {resp.status_code}"
+            assert isinstance(resp.json(), (dict, list))
+
+
+class TestSystemMonitor:
+    def test_uptime(self):
+        from core.monitoring import SystemMonitor
+        m = SystemMonitor()
+        assert m.uptime_seconds >= 0
+        assert "h" in m.uptime_str or m.uptime_seconds < 3600
+
+    def test_stats_dict(self):
+        from core.monitoring import SystemMonitor
+        m = SystemMonitor()
+        stats = m.stats()
+        assert "uptime_seconds" in stats
+        assert "memory_mb" in stats
+        assert "cpu_pct" in stats
+
+    def test_log_capture_handler(self):
+        import logging
+        from core.monitoring import LogCaptureHandler
+        handler = LogCaptureHandler(capacity=10)
+        logger = logging.getLogger("test_monitor")
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+        logger.warning("test warning")
+        logger.error("test error")
+        logs = handler.get_recent()
+        assert len(logs) >= 2
+        error_logs = handler.get_errors(limit=5)
+        assert any("test error" in r["msg"] for r in error_logs)
+
 
 class TestAsyncSmoke:
     """Async smoke tests requiring an event loop."""

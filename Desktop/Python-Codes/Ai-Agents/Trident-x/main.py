@@ -70,6 +70,9 @@ def _release_instance_lock():
 
 atexit.register(_release_instance_lock)
 
+# ── Monitoring ─────────────────────────────────────────────────────────────
+from core.monitoring import system_monitor
+
 # ── Config & Logging ──────────────────────────────────────────────────────
 from config.settings import settings
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
@@ -98,6 +101,9 @@ if settings.LOG_TO_FILE:
     logging.getLogger().addHandler(file_handler)
     logging.getLogger().addHandler(daily_handler)
 logger = logging.getLogger("trident")
+
+# Live log capture for dashboard
+system_monitor.setup_log_capture()
 
 # ── Core ───────────────────────────────────────────────────────────────────
 from core.event_bus import bus
@@ -309,6 +315,7 @@ async def on_candle(candle: Dict):
     global daily_pnl, consecutive_losses, win_rate_cache, peak_equity
 
     symbol = candle["symbol"]
+    system_monitor.record_candle(symbol, candle.get("timestamp", 0))
 
     # Anomaly detection
     if not check_anomalies(symbol, candle):
@@ -388,6 +395,8 @@ async def on_candle(candle: Dict):
             if scale < 1.0:
                 sig["weight"] = sig.get("weight", 0.33) * scale
 
+    system_monitor.increment_signals()
+
     # Persist signal
     state_manager.insert_signal({
         "symbol": symbol,
@@ -458,6 +467,7 @@ async def on_candle(candle: Dict):
         symbol, combined, feat_5m, equity, regime, band, win_rate_cache,
     )
     if opened:
+        system_monitor.increment_trades()
         logger.info(f"Signal executed: {combined['direction']} {symbol} conf={combined['confidence']:.3f}")
 
     await broadcast({"type": "update", "signal": combined, "passed": passed})

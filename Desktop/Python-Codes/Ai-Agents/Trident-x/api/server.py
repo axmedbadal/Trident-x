@@ -10,6 +10,7 @@ from fastapi.security import APIKeyHeader
 
 from config.settings import settings
 from core.event_bus import bus
+from core.monitoring import system_monitor
 from core.state_manager import state_manager
 from execution.manager import execution_manager
 from risk.circuit_breaker import circuit_breaker
@@ -49,6 +50,21 @@ def api_health():
         "paused": _paused,
         "timestamp": int(time.time() * 1000),
     }
+
+
+@app.get("/api/monitor/stats")
+def api_monitor_stats():
+    return system_monitor.stats()
+
+
+@app.get("/api/monitor/logs")
+def api_monitor_logs(level: str = None, limit: int = 50):
+    return system_monitor.recent_logs(level, limit)
+
+
+@app.get("/api/monitor/errors")
+def api_monitor_errors(limit: int = 20):
+    return system_monitor.recent_errors(limit)
 
 
 @app.get("/api/state")
