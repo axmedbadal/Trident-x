@@ -124,6 +124,7 @@ class StateManager:
             self._mem_conn.executescript(SCHEMA)
             self._mem_conn.commit()
         self._init_db()
+        self._migrate()
 
     def _connection(self):
         if self._mem_conn is not None:
@@ -137,6 +138,23 @@ class StateManager:
         with self._connection() as conn:
             conn.executescript(SCHEMA)
             conn.commit()
+
+    def _migrate(self):
+        """Add columns for individual engine votes and signal_id tracking."""
+        migrations = [
+            "ALTER TABLE signals ADD COLUMN sniper_vote TEXT DEFAULT 'NEUTRAL'",
+            "ALTER TABLE signals ADD COLUMN smc_vote TEXT DEFAULT 'NEUTRAL'",
+            "ALTER TABLE signals ADD COLUMN momentum_vote TEXT DEFAULT 'NEUTRAL'",
+            "ALTER TABLE signals ADD COLUMN mean_reversion_vote TEXT DEFAULT 'NEUTRAL'",
+            "ALTER TABLE positions ADD COLUMN signal_id INTEGER DEFAULT NULL",
+        ]
+        with self._connection() as conn:
+            for sql in migrations:
+                try:
+                    conn.execute(sql)
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass  # column already exists
 
     def save_candles(self, candles: List[Dict[str, Any]]):
         rows = [
@@ -162,11 +180,13 @@ class StateManager:
     def insert_signal(self, signal: Dict[str, Any]) -> int:
         with self._connection() as conn:
             cur = conn.execute(
-                "INSERT INTO signals(symbol,direction,confidence,strength,regime,engines_agreeing,passed_gate,gate_reason,executed,timestamp,meta_prob) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO signals(symbol,direction,confidence,strength,regime,engines_agreeing,passed_gate,gate_reason,executed,timestamp,meta_prob,sniper_vote,smc_vote,momentum_vote,mean_reversion_vote) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     signal["symbol"], signal["direction"], signal["confidence"], signal["strength"],
                     signal["regime"], signal["engines_agreeing"], int(signal["passed_gate"]),
                     signal.get("gate_reason"), int(signal["executed"]), signal["timestamp"], signal.get("meta_prob"),
+                    signal.get("sniper_vote", "NEUTRAL"), signal.get("smc_vote", "NEUTRAL"),
+                    signal.get("momentum_vote", "NEUTRAL"), signal.get("mean_reversion_vote", "NEUTRAL"),
                 ),
             )
             conn.commit()
@@ -226,11 +246,12 @@ class StateManager:
                 )
             else:
                 cur = conn.execute(
-                    "INSERT INTO positions(symbol,direction,entry_price,size_usd,stop_loss,take_profit,status,engine,opened_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO positions(symbol,direction,entry_price,size_usd,stop_loss,take_profit,status,engine,opened_at,signal_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         position["symbol"], position["direction"], position["entry_price"],
                         position["size_usd"], position["stop_loss"], position["take_profit"],
-                        position.get("status", "OPEN"), position.get("engine", "consensus"), position["opened_at"],
+                        position.get("status", "OPEN"), position.get("engine", "consensus"),
+                        position["opened_at"], position.get("signal_id"),
                     ),
                 )
                 position["id"] = cur.lastrowid
@@ -290,6 +311,32 @@ class StateManager:
                 ),
             )
             conn.commit()
+
+    def get_signal_by_id(self, signal_id: int) -> Optional[Dict[str, Any]]:
+        with self._connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute("SELECT * FROM signals WHERE id=?", (signal_id,))
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def record_engine_pnl(self, engine: str, regime: str, pnl: float):
+        """Called after position close to attribute P&L to engine+regime."""
+        perf = self.get_engine_performance(engine, regime)
+        if perf is None:
+            perf = {"total_signals": 0, "passed_gate": 0, "executed": 0,
+                    "wins": 0, "losses": 0, "win_rate": 0.0, "avg_pnl": 0.0, "disabled": 0}
+        perf["executed"] = perf.get("executed", 0) + 1
+        if pnl > 0:
+            perf["wins"] = perf.get("wins", 0) + 1
+        else:
+            perf["losses"] = perf.get("losses", 0) + 1
+        total_decisions = perf["wins"] + perf["losses"]
+        perf["win_rate"] = perf["wins"] / max(total_decisions, 1)
+        # Rolling avg PnL
+        prev_avg = perf.get("avg_pnl", 0.0)
+        prev_count = total_decisions - 1
+        perf["avg_pnl"] = (prev_avg * prev_count + pnl) / total_decisions if total_decisions > 1 else pnl
+        self.update_engine_performance(engine, regime, perf)
 
     def get_engine_performance(self, engine: str, regime: str) -> Optional[Dict[str, Any]]:
         with self._connection() as conn:

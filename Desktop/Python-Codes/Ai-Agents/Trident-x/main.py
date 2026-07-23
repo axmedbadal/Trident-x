@@ -343,9 +343,9 @@ async def on_candle(candle: Dict):
     regime_state = regime_detector.detect(symbol, pd.DataFrame(features.buffers.get(f"{symbol}:{settings.PRIMARY_TF}", [])))
     regime = regime_state.state
 
-    # Regime history
+    # Regime history (use candle timestamp to ensure one row per candle per symbol)
     state_manager.insert_regime_change(
-        int(time.time() * 1000), symbol, regime, regime_state.confidence, regime_state.hurst
+        candle["timestamp"], symbol, regime, regime_state.confidence, regime_state.hurst
     )
 
     # Funding rate
@@ -397,8 +397,21 @@ async def on_candle(candle: Dict):
 
     system_monitor.increment_signals()
 
+    # Log signal generation
+    log_buffer.append({
+        "timestamp": int(time.time()), "level": "INFO",
+        "module": "signals", "message": f"{symbol} {combined['direction']} conf={combined['confidence']:.3f} regime={regime}",
+        "correlation_id": None,
+    })
+
+    # Engine votes
+    sig_smc_dir = sig_smc.get("direction", "NEUTRAL")
+    sig_mom_dir = sig_mom.get("direction", "NEUTRAL")
+    sig_mr_dir = sig_mr.get("direction", "NEUTRAL")
+    sig_sniper_dir = sig_sniper.get("direction", "NEUTRAL")
+
     # Persist signal
-    state_manager.insert_signal({
+    signal_id = state_manager.insert_signal({
         "symbol": symbol,
         "direction": combined["direction"],
         "confidence": combined["confidence"],
@@ -410,6 +423,10 @@ async def on_candle(candle: Dict):
         "executed": False,
         "timestamp": int(time.time() * 1000),
         "meta_prob": meta_prob,
+        "sniper_vote": sig_sniper_dir,
+        "smc_vote": sig_smc_dir,
+        "momentum_vote": sig_mom_dir,
+        "mean_reversion_vote": sig_mr_dir,
     })
 
     # Broadcast update
@@ -465,10 +482,16 @@ async def on_candle(candle: Dict):
 
     opened = await execution_manager.open_position(
         symbol, combined, feat_5m, equity, regime, band, win_rate_cache,
+        signal_id=signal_id,
     )
     if opened:
         system_monitor.increment_trades()
         logger.info(f"Signal executed: {combined['direction']} {symbol} conf={combined['confidence']:.3f}")
+        log_buffer.append({
+            "timestamp": int(time.time()), "level": "INFO",
+            "module": "execution", "message": f"OPENED {combined['direction']} {symbol} sig_id={signal_id}",
+            "correlation_id": None,
+        })
 
     await broadcast({"type": "update", "signal": combined, "passed": passed})
 
@@ -506,9 +529,17 @@ async def regime_retrain_loop():
         try:
             for sym in settings.PAIRS:
                 df = pd.DataFrame(features.buffers.get(f"{sym}:{settings.PRIMARY_TF}", []))
-                if len(df) > 200:
-                    await regime_detector.maybe_retrain(sym, df)
+                buf_size = len(df)
+                if buf_size > 200:
+                    retrained = await regime_detector.maybe_retrain(sym, df)
                     await meta_labeler.maybe_retrain(sym, state_manager.load_candles(sym, "5m", 500))
+                    if retrained:
+                        logger.info(f"Regime model retrained for {sym} ({buf_size} candles)")
+                        log_buffer.append({
+                            "timestamp": int(time.time()), "level": "INFO",
+                            "module": "regime", "message": f"Retrained {sym} ({buf_size} candles)",
+                            "correlation_id": None,
+                        })
             # Fix 3.2: Adjust engine weights based on performance
             consensus.adjust_weights()
         except Exception as e:

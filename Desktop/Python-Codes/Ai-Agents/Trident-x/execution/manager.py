@@ -32,6 +32,7 @@ class ExecutionManager:
         regime: str,
         dd_band: str,
         win_rate_30: float,
+        signal_id: int = None,
     ) -> bool:
         open_count = len(self.positions)
         if open_count >= settings.MAX_POSITIONS:
@@ -79,6 +80,7 @@ class ExecutionManager:
             "tp3_hit": 0,
             "tp4_hit": 0,
             "tp5_hit": 0,
+            "signal_id": signal_id,
         }
         pos["id"] = state_manager.save_position(pos)
         state_manager.insert_trade({
@@ -257,6 +259,21 @@ class ExecutionManager:
             "price": fill["price"], "quantity": fill["quantity"], "fee": fill["fee"],
             "slippage": fill["slippage"], "timestamp": int(time.time() * 1000), "type": "EXIT",
         })
+        # Attribute P&L to engines that voted for this direction
+        signal_id = pos.get("signal_id")
+        if signal_id:
+            sig = state_manager.get_signal_by_id(signal_id)
+            if sig:
+                dir_map = {
+                    "sniper": sig.get("sniper_vote", "NEUTRAL"),
+                    "smc": sig.get("smc_vote", "NEUTRAL"),
+                    "momentum": sig.get("momentum_vote", "NEUTRAL"),
+                    "mean_reversion": sig.get("mean_reversion_vote", "NEUTRAL"),
+                }
+                pos_dir = pos["direction"]
+                for eng, vote in dir_map.items():
+                    if vote == pos_dir:
+                        state_manager.record_engine_pnl(eng, regime, pnl)
         logger.info(f"Closed {pos['symbol']} {reason} PnL=${pnl:.2f}")
 
     def _remove(self, pos: Dict):
