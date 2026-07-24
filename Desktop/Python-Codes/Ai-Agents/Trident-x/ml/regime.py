@@ -63,12 +63,29 @@ class RegimeDetector:
         if len(df) < 200:
             return
         feats = self._regime_features(df).dropna()
-        if len(feats) < 100:
+        if len(feats) < 150:
             return
-        model = GaussianHMM(n_components=self.n_states, covariance_type="diag", n_iter=50, random_state=42)
-        model.fit(feats.values)
+        # Dynamically reduce states for small datasets
+        n_states = min(self.n_states, max(2, len(feats) // 100))
+        model = GaussianHMM(n_components=n_states, covariance_type="diag", n_iter=200, random_state=42,
+                            tol=1e-4, verbose=False)
+        try:
+            model.fit(feats.values)
+        except Exception as e:
+            logger.warning(f"HMM fit failed {symbol}: {e}")
+            return
+        # Validate: reject degenerate models (NaN params or zero-sum transmat rows)
+        if np.any(np.isnan(model.startprob_)) or np.any(np.isnan(model.transmat_)):
+            logger.warning(f"HMM model degenerate for {symbol} (NaN params), keeping previous")
+            return
+        if np.any(np.isnan(model.means_)):
+            logger.warning(f"HMM model degenerate for {symbol} (NaN means), keeping previous")
+            return
+        if np.any(model.transmat_.sum(axis=1) == 0):
+            logger.warning(f"HMM model degenerate for {symbol} (zero-sum transmat rows), keeping previous")
+            return
         self.models[symbol] = model
-        logger.info(f"Retrained HMM for {symbol}")
+        logger.info(f"Retrained HMM for {symbol} ({n_states} states, {len(feats)} samples)")
 
     def _hmm_detect(self, symbol: str, df: pd.DataFrame) -> RegimeState:
         model = self.models.get(symbol)
