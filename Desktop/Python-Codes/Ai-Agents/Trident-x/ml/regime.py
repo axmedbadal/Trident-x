@@ -33,6 +33,8 @@ class RegimeDetector:
         self._last_train: Dict[str, float] = {}
         self._low_conf_count: Dict[str, int] = {}
         self._current: Dict[str, RegimeState] = {}
+        # Tier 3b: walk-forward held-out log-likelihood per model
+        self._model_scores: Dict[str, float] = {}
 
     def detect(self, symbol: str, df: pd.DataFrame) -> RegimeState:
         try:
@@ -60,32 +62,53 @@ class RegimeDetector:
                 logger.warning(f"HMM retrain failed {symbol}: {e}")
 
     def _train(self, symbol: str, df: pd.DataFrame):
+        """Tier 3b: walk-forward training with held-out validation.
+
+        Fit on the older slice, score on the most recent 10%, and only replace the
+        deployed model if the candidate matches/exceeds the incumbent on that slice.
+        """
         if len(df) < 200:
             return
         feats = self._regime_features(df).dropna()
-        if len(feats) < 150:
+        n = len(feats)
+        if n < 150:
             return
+        holdout = max(20, int(n * 0.1))
+        train_feats = feats.iloc[:-holdout]
+        test_feats = feats.iloc[-holdout:]
         # Dynamically reduce states for small datasets
-        n_states = min(self.n_states, max(2, len(feats) // 100))
-        model = GaussianHMM(n_components=n_states, covariance_type="diag", n_iter=200, random_state=42,
-                            tol=1e-4, verbose=False)
+        n_states = min(self.n_states, max(2, len(train_feats) // 100))
+        candidate = GaussianHMM(n_components=n_states, covariance_type="diag", n_iter=200, random_state=42,
+                                tol=1e-4, verbose=False)
         try:
-            model.fit(feats.values)
+            candidate.fit(train_feats.values)
         except Exception as e:
             logger.warning(f"HMM fit failed {symbol}: {e}")
             return
         # Validate: reject degenerate models (NaN params or zero-sum transmat rows)
+        if not self._validate_model(candidate):
+            logger.warning(f"HMM model degenerate for {symbol}, keeping previous")
+            return
+
+        score = float(np.mean(candidate.score_samples(test_feats.values)[0]))
+        incumbent = self.models.get(symbol)
+        incumbent_score = self._model_scores.get(symbol)
+        if incumbent is not None and incumbent_score is not None and score < incumbent_score - 0.01:
+            logger.info(f"HMM candidate score {score:.3f} < incumbent {incumbent_score:.3f} for {symbol}, keeping previous")
+            return
+        self.models[symbol] = candidate
+        self._model_scores[symbol] = score
+        logger.info(f"Retrained HMM for {symbol} ({n_states} states, {n} samples), score {score:.3f}")
+
+    @staticmethod
+    def _validate_model(model) -> bool:
         if np.any(np.isnan(model.startprob_)) or np.any(np.isnan(model.transmat_)):
-            logger.warning(f"HMM model degenerate for {symbol} (NaN params), keeping previous")
-            return
+            return False
         if np.any(np.isnan(model.means_)):
-            logger.warning(f"HMM model degenerate for {symbol} (NaN means), keeping previous")
-            return
+            return False
         if np.any(model.transmat_.sum(axis=1) == 0):
-            logger.warning(f"HMM model degenerate for {symbol} (zero-sum transmat rows), keeping previous")
-            return
-        self.models[symbol] = model
-        logger.info(f"Retrained HMM for {symbol} ({n_states} states, {len(feats)} samples)")
+            return False
+        return True
 
     def _hmm_detect(self, symbol: str, df: pd.DataFrame) -> RegimeState:
         model = self.models.get(symbol)

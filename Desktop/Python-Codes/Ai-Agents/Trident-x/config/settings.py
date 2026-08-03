@@ -18,6 +18,10 @@ class TridentConfig(BaseSettings):
 
     KELLY_FRACTION: float = 0.25
 
+    # Tier 3a: volatility-targeting sizing (keep per-trade risk near target ATR%)
+    VOL_TARGET_ATR_PCT: float = 0.06
+    VOL_SCALE_FLOOR: float = 0.30
+
     ASSET_PARAMS: Dict = {
         "SOLUSDT": {
             "eqh_tolerance": 0.005,

@@ -34,6 +34,9 @@ class MetaLabeler:
         self.is_trained: Dict[str, bool] = {}
         self.signal_count: Dict[str, int] = {}
         self.trained = False
+        # Tier 3b: walk-forward validation bookkeeping
+        self.best_auc: Dict[str, float] = {}
+        self.last_auc: Dict[str, float] = {}
 
     def predict(self, symbol: str, features: Dict[str, float]) -> float:
         """Return P(win) for current signal. Uses cold start default until trained."""
@@ -66,6 +69,13 @@ class MetaLabeler:
             logger.warning(f"Meta labeler retrain failed {symbol}: {e}")
 
     def _train(self, symbol: str, candles: List[Dict]):
+        """Tier 3b: walk-forward training with no lookahead.
+
+        Features are built progressively (history up to bar i only), so every sample
+        is exactly what the live pipeline would have seen at that moment. The last 20%
+        of samples are held out for validation; the model is deployed only if it beats
+        the current best AUC on that walk-forward slice.
+        """
         df = pd.DataFrame(candles)
         if len(df) < 200:
             return
@@ -74,9 +84,9 @@ class MetaLabeler:
 
         from features.engineer import FeatureEngineer
         fe = FeatureEngineer()
-        fe.load_history(symbol, "5m", candles)
         X, y = [], []
         for i in range(50, len(candles) - 3):
+            fe.load_history(symbol, "5m", candles[: i + 1])
             f = fe.compute(symbol, "5m")
             if f is None:
                 continue
@@ -86,7 +96,10 @@ class MetaLabeler:
         if len(X) < MIN_TRAIN_SAMPLES or not XGB_AVAILABLE:
             return
 
-        split = int(len(X) * 0.7)
+        # Walk-forward split: train on the past, validate on the most recent slice.
+        split = int(len(X) * 0.8)
+        if split < MIN_TRAIN_SAMPLES or len(X) - split < 8:
+            return
         X_train, y_train = X[:split], y[:split]
         X_val, y_val = X[split:], y[split:]
 
@@ -97,22 +110,40 @@ class MetaLabeler:
         )
         model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
 
-        # Validate AUC
+        # Validate AUC on the walk-forward slice; deploy only on improvement.
         try:
             from sklearn.metrics import roc_auc_score
             val_proba = model.predict_proba(X_val)[:, 1]
             auc = roc_auc_score(y_val, val_proba)
-            if auc < MIN_AUC_THRESHOLD:
-                logger.warning(f"Meta-labeler AUC {auc:.3f} too low for {symbol}, staying cold start")
-                return
-            logger.info(f"Meta-labeler trained for {symbol}, AUC: {auc:.3f}")
         except Exception:
-            logger.info(f"Meta-labeler trained for {symbol} (AUC check skipped)")
+            logger.info(f"Meta-labeler AUC check skipped for {symbol}")
+            self.models[symbol] = model
+            self._last_train[symbol] = time.time()
+            self.is_trained[symbol] = True
+            self.trained = True
+            return
 
+        self.last_auc[symbol] = auc
+        best = self.best_auc.get(symbol)
+        if auc < MIN_AUC_THRESHOLD:
+            logger.warning(f"Meta-labeler AUC {auc:.3f} too low for {symbol}, staying cold start")
+            return
+        if best is not None and auc < best - 0.02:
+            logger.warning(f"Meta-labeler AUC {auc:.3f} < best {best:.3f} for {symbol}, keeping previous model")
+            return
+
+        self.best_auc[symbol] = max(best or 0.0, auc)
         self.models[symbol] = model
         self._last_train[symbol] = time.time()
         self.is_trained[symbol] = True
         self.trained = True
+        logger.info(f"Meta-labeler walk-forward retrained for {symbol}, AUC: {auc:.3f}")
+
+    def walk_forward_retrain(self, symbol: str, candles: List[Dict]) -> bool:
+        """Explicit walk-forward retrain. Returns True if a new model was deployed."""
+        before = self.is_trained.get(symbol, False)
+        self._train(symbol, candles)
+        return self.is_trained.get(symbol, False) and not before
 
 
 meta_labeler = MetaLabeler()

@@ -38,6 +38,11 @@ class PositionSizer:
         vol_mult = 1.0 if atr_20d_pct < 0.05 else (0.75 if atr_20d_pct < 0.10 else 0.5)
         regime_mult = {"TRENDING_UP": 1.2, "TRENDING_DOWN": 1.2, "MEAN_REVERTING": 0.8, "ACCUMULATION": 0.6, "DISTRIBUTION": 0.6}.get(regime, 1.0)
 
+        # Tier 3a: volatility targeting — size keeps per-trade risk near target ATR%.
+        # Higher ATR% than target shrinks size; lower ATR% grows it back toward the cap.
+        vol_target = settings.VOL_TARGET_ATR_PCT / 100.0
+        vol_target_mult = max(settings.VOL_SCALE_FLOOR, min(1.0, vol_target / max(atr_20d_pct, 1e-9)))
+
         corr = self._avg_correlation(features.get("_symbol", ""), open_positions)
         corr_penalty = max(0.5, 1.0 - corr * 0.5)
 
@@ -54,7 +59,7 @@ class PositionSizer:
         else:
             wr_mult = 1.0
 
-        fraction = kelly * dd_scale * vol_mult * regime_mult * corr_penalty * wr_mult * atr_rank_mult
+        fraction = kelly * dd_scale * vol_mult * regime_mult * corr_penalty * wr_mult * atr_rank_mult * vol_target_mult
         fraction = min(fraction, settings.MAX_POSITION_EQUITY_PCT)
         risk_based_size = equity * fraction
         max_size = equity * settings.MAX_POSITION_EQUITY_PCT

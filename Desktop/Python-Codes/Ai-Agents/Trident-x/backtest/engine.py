@@ -43,6 +43,8 @@ class Sim:
         self.peak = initial
         self.positions: List[Dict] = []
         self.closed: List[Dict] = []
+        # engine -> regime -> {wins, losses}; fed to consensus.apply_backtest_metrics
+        self.metrics: Dict[str, Dict[str, Dict[str, int]]] = {}
 
     @property
     def equity(self) -> float:
@@ -84,6 +86,7 @@ class Sim:
             "remaining_usd": size, "stop_loss": sl, "take_profit": tp,
             "opened_at": t, "closed_at": None, "pnl": 0.0, "exit_reason": None,
             "tp1_hit": 0, "tp2_hit": 0, "tp3_hit": 0, "tp4_hit": 0, "tp5_hit": 0,
+            "regime": regime, "engines": list(signal.get("engines", [])),
         }
         self.positions.append(p)
         self.cash -= size
@@ -104,6 +107,17 @@ class Sim:
         self.closed.append(p)
         self.cash += proceeds + pnl
         self.peak = max(self.peak, self.equity)
+        self._attribute(p)
+
+    def _attribute(self, p: Dict):
+        """Attribute closed P&L to each engine that voted for the entry direction."""
+        regime = p.get("regime", "MEAN_REVERTING")
+        wins = 1 if p["pnl"] > 0 else 0
+        losses = 1 if p["pnl"] <= 0 else 0
+        for eng in p.get("engines", []):
+            bucket = self.metrics.setdefault(eng, {}).setdefault(regime, {"wins": 0, "losses": 0})
+            bucket["wins"] += wins
+            bucket["losses"] += losses
 
     def partial(self, p: Dict, pct: float):
         close_size = p["remaining_usd"] * pct
@@ -185,6 +199,18 @@ def _check_exits(sim: Sim, sym: str, feats: Dict, t: int):
             sim.close(p, close, "MOMENTUM_REVERSAL", t)
 
 
+def _synthetic_signal(sym: str, feats: Dict, regime: str) -> Dict:
+    """Force-mode fallback entry so exits/PnL get exercised on real candles."""
+    close = feats.get("close", 0.0)
+    ema = feats.get("ema_20", 0.0) or feats.get("ema_9", 0.0) or close
+    d = "BUY" if close >= ema else "SELL"
+    engines = ["smc", "momentum"] if d == "BUY" else ["momentum", "mean_reversion"]
+    return {
+        "symbol": sym, "direction": d, "confidence": 0.9, "strength": "STRONG",
+        "engines_agreeing": 2, "regime": regime, "engines": engines,
+    }
+
+
 def _install_compute_cache() -> Dict:
     """Wrap features.compute so repeated (symbol, tf, buffer-head) calls are served
     from cache. The backtest drives the buffer; the head timestamp only changes when
@@ -216,8 +242,13 @@ def load_data(symbols: Optional[List[str]] = None) -> Dict:
     return data
 
 
-def run_backtest(symbols: Optional[List[str]] = None, initial: float = 10000.0):
-    """Portfolio-level backtest. Returns (Sim, stats)."""
+def run_backtest(symbols: Optional[List[str]] = None, initial: float = 10000.0, force: bool = False):
+    """Portfolio-level backtest. Returns (Sim, stats, rejections, eng_stats, consensus_reasons).
+
+    force=True (smoke mode) synthesizes an entry whenever the gate rejects but the
+    feature state is valid, so open->partial->exit->PnL bookkeeping gets exercised
+    even when real engine setups are rare.
+    """
     symbols = symbols or settings.PAIRS
     data = load_data(symbols)
     _install_compute_cache()
@@ -261,6 +292,9 @@ def run_backtest(symbols: Optional[List[str]] = None, initial: float = 10000.0):
             if combined.get("direction") == "NEUTRAL":
                 consensus_reasons[combined.get("rationale", "unknown")] = \
                     consensus_reasons.get(combined.get("rationale", "unknown"), 0) + 1
+            elif combined.get("direction") != "NEUTRAL":
+                combined["engines"] = [s.get("engine") for s in sigs if s.get("direction") == combined["direction"]]
+                combined["regime"] = regime
 
             meta_prob = meta_labeler.predict(sym, feats5)
             mtf_signals = {}
@@ -273,11 +307,15 @@ def run_backtest(symbols: Optional[List[str]] = None, initial: float = 10000.0):
 
             # Exits first, then possibly a new entry.
             _check_exits(sim, sym, feats5, t)
-            if passed and len(sim.positions) < settings.MAX_POSITIONS:
-                sim.open(combined, feats5, regime, t)
-            elif not passed:
+            if not passed:
                 reason = (_reason or "unknown").split(":")[0]
-                rejections[reason] = rejections.get(reason, 0) + 1
+                if force and len(sim.positions) < settings.MAX_POSITIONS and not any(x["symbol"] == sym for x in sim.positions):
+                    synth = _synthetic_signal(sym, feats5, regime)
+                    sim.open(synth, feats5, regime, t)
+                else:
+                    rejections[reason] = rejections.get(reason, 0) + 1
+            elif passed and len(sim.positions) < settings.MAX_POSITIONS:
+                sim.open(combined, feats5, regime, t)
 
     return sim, _stats(sim), rejections, eng_stats, consensus_reasons
 
@@ -299,4 +337,10 @@ def _stats(sim: Sim) -> Dict:
         "peak": sim.peak,
         "open_positions": len(sim.positions),
         "exit_reasons": by_reason,
+        "engine_metrics": sim.metrics,
     }
+
+
+def run_smoke(symbols: Optional[List[str]] = None, initial: float = 10000.0):
+    """Smoke run: force entries so the full open->partial->exit->PnL path runs."""
+    return run_backtest(symbols=symbols, initial=initial, force=True)

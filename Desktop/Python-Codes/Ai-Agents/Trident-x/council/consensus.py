@@ -1,6 +1,7 @@
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from config.settings import settings
 from core.state_manager import state_manager
 from strategies.momentum import momentum_engine
 from strategies.smc import smc_engine
@@ -16,18 +17,45 @@ DEFAULT_WEIGHTS = {
     "mean_reversion": 0.15,
 }
 
+REGIMES = ["TRENDING_UP", "TRENDING_DOWN", "MEAN_REVERTING", "ACCUMULATION", "DISTRIBUTION"]
+
 MIN_WEIGHT = 0.10
 MAX_WEIGHT = 0.60
 WEIGHT_LEARNING_RATE = 0.05
+MIN_WINRATE = 0.60      # above this -> increase weight
+LOW_WINRATE = 0.45      # below this -> decrease weight
 
 
 class ConsensusEngine:
     engines = [momentum_engine, smc_engine, mean_reversion_engine, sniper_engine]
+
+    # Tier 2: per-regime dynamic weights. Regime -> engine -> weight.
+    _regime_weights: Dict[str, Dict[str, float]] = {}
+    # Legacy flat view (kept for compatibility); reflects mean of per-regime weights.
     _dynamic_weights: Dict[str, float] = dict(DEFAULT_WEIGHTS)
 
+    def _weights_for(self, regime: str) -> Dict[str, float]:
+        if regime not in self._regime_weights or not self._regime_weights[regime]:
+            self._regime_weights[regime] = dict(DEFAULT_WEIGHTS)
+        return self._regime_weights[regime]
+
     def _get_weight(self, engine_name: str, regime: str) -> float:
-        """Fix 3.2: Return regime-aware weight from auto-adjustment."""
-        return self._dynamic_weights.get(engine_name, 0.20)
+        """Fix 3.2 + Tier 2: regime-aware weight from the per-regime table."""
+        return self._weights_for(regime).get(engine_name, 0.20)
+
+    def _normalize(self, weights: Dict[str, float]) -> Dict[str, float]:
+        total = sum(weights.values())
+        if total <= 0:
+            return dict(DEFAULT_WEIGHTS)
+        return {k: v / total for k, v in weights.items()}
+
+    def _sync_dynamic_weights(self):
+        """Keep the legacy flat view equal to the mean of per-regime weights, normalized."""
+        out = {}
+        for eng in DEFAULT_WEIGHTS:
+            vals = [self._weights_for(r).get(eng, 0.20) for r in REGIMES]
+            out[eng] = sum(vals) / len(vals)
+        self._dynamic_weights = self._normalize(out)
 
     def combine(self, signals: List[Dict[str, Any]], regime: str) -> Dict[str, Any]:
         valid = [s for s in signals if s.get("direction") != "NEUTRAL" and regime in s.get("permitted_regimes", set())]
@@ -65,33 +93,63 @@ class ConsensusEngine:
         }
 
     def adjust_weights(self):
-        """Fix 3.2: Auto-adjust engine weights based on win rate performance."""
-        for engine_name in ["sniper", "smc", "momentum", "mean_reversion"]:
-            total_wr = 0.0
-            count = 0
-            for regime in ["TRENDING_UP", "TRENDING_DOWN", "MEAN_REVERTING", "ACCUMULATION", "DISTRIBUTION"]:
+        """Tier 2: adapt each regime's engine weights from live engine_performance,
+        then keep the legacy flat view consistent."""
+        for regime in REGIMES:
+            weights = dict(self._weights_for(regime))
+            changed = False
+            for engine_name in DEFAULT_WEIGHTS:
                 perf = state_manager.get_engine_performance(engine_name, regime)
-                if perf and perf.get("total_signals", 0) >= 30:
-                    total_wr += perf.get("win_rate", 0.5)
-                    count += 1
-            if count == 0:
-                continue
-            avg_wr = total_wr / count
-            current_w = self._dynamic_weights.get(engine_name, 0.33)
-            if avg_wr >= 0.60:
-                new_w = current_w + WEIGHT_LEARNING_RATE
-            elif avg_wr < 0.45:
-                new_w = current_w - WEIGHT_LEARNING_RATE
+                if perf and perf.get("total_signals", 0) >= settings.ENGINE_EVAL_MIN_SIGNALS:
+                    wr = perf.get("win_rate", 0.5)
+                    if wr >= MIN_WINRATE:
+                        weights[engine_name] = min(MAX_WEIGHT, weights.get(engine_name, 0.2) + WEIGHT_LEARNING_RATE)
+                    elif wr < LOW_WINRATE:
+                        weights[engine_name] = max(MIN_WEIGHT, weights.get(engine_name, 0.2) - WEIGHT_LEARNING_RATE)
+                    changed = True
+            if changed:
+                self._regime_weights[regime] = self._normalize(weights)
             else:
-                new_w = current_w
-            new_w = max(MIN_WEIGHT, min(MAX_WEIGHT, new_w))
-            self._dynamic_weights[engine_name] = new_w
-        # Normalize to sum to 1.0
-        total = sum(self._dynamic_weights.values())
-        if total > 0:
-            for k in self._dynamic_weights:
-                self._dynamic_weights[k] /= total
-        logger.debug(f"Engine weights: {self._dynamic_weights}")
+                self._regime_weights[regime] = self._normalize(weights)
+        self._sync_dynamic_weights()
+
+    def apply_backtest_metrics(self, metrics: Dict[str, Dict[str, Dict[str, int]]]):
+        """Tier 2: feed backtest produced win/loss counts per engine+regime.
+
+        metrics[engine][regime] = {"wins": int, "losses": int}
+        Adapts per-regime weights with the same learning rule as live data.
+        """
+        for regime in REGIMES:
+            weights = dict(self._weights_for(regime))
+            changed = False
+            for engine_name in DEFAULT_WEIGHTS:
+                m = metrics.get(engine_name, {}).get(regime)
+                if not m:
+                    continue
+                wins = m.get("wins", 0)
+                losses = m.get("losses", 0)
+                n = wins + losses
+                if n < 5:  # need enough samples to move a weight
+                    continue
+                wr = wins / n
+                if wr >= MIN_WINRATE:
+                    weights[engine_name] = min(MAX_WEIGHT, weights.get(engine_name, 0.2) + WEIGHT_LEARNING_RATE)
+                elif wr < LOW_WINRATE:
+                    weights[engine_name] = max(MIN_WEIGHT, weights.get(engine_name, 0.2) - WEIGHT_LEARNING_RATE)
+                changed = True
+            if changed:
+                self._regime_weights[regime] = self._normalize(weights)
+        self._sync_dynamic_weights()
+
+    def get_weights(self, regime: Optional[str] = None):
+        """Expose weights (one regime or all) for transparency / dashboard / tests."""
+        if regime is None:
+            return {r: dict(self._weights_for(r)) for r in REGIMES}
+        return dict(self._weights_for(regime))
+
+    def reset(self):
+        self._regime_weights = {}
+        self._dynamic_weights = dict(DEFAULT_WEIGHTS)
 
     @staticmethod
     def _neutral(regime: str, reason: str) -> Dict[str, Any]:
