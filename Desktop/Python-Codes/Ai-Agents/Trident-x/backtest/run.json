@@ -1,0 +1,39 @@
+{
+  "elapsed_s": 291.7,
+  "stats": {
+    "trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "total_pnl": 0,
+    "final_equity": 10000.0,
+    "peak": 10000.0,
+    "open_positions": 0,
+    "exit_reasons": {}
+  },
+  "rejections": {
+    "neutral": 1763
+  },
+  "engine_activity": {
+    "smc": {
+      "eval": 1763,
+      "fired": 7
+    },
+    "momentum": {
+      "eval": 1763,
+      "fired": 2
+    },
+    "mean_reversion": {
+      "eval": 1763,
+      "fired": 52
+    },
+    "sniper": {
+      "eval": 1763,
+      "fired": 3
+    }
+  },
+  "consensus_neutral_reasons": {
+    "insufficient_engine_agreement": 1763
+  },
+  "sample_trades": []
+}
