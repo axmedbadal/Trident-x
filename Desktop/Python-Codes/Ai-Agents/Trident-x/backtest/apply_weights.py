@@ -13,12 +13,10 @@ from council.consensus import consensus
 DEFAULT = "backtest/run.json"
 
 
-def main(path: str = DEFAULT):
-    with open(path) as fh:
-        data = json.load(fh)
-    metrics = data.get("stats", {}).get("engine_metrics", {})
+def apply_metrics(metrics: dict):
+    """Feed engine->regime->{wins,losses} into the consensus per-regime weight table."""
     if not metrics:
-        print("No engine_metrics found in", path, "- nothing to apply.")
+        print("No engine_metrics to apply.")
         return
 
     print("BEFORE weights (per regime):")
@@ -36,6 +34,12 @@ def main(path: str = DEFAULT):
     for eng, regs in metrics.items():
         for reg, m in regs.items():
             print(f"  {eng}/{reg}: wins={m['wins']} losses={m['losses']}")
+
+
+def main(path: str = DEFAULT):
+    with open(path) as fh:
+        data = json.load(fh)
+    apply_metrics(data.get("stats", {}).get("engine_metrics", {}))
 
 
 if __name__ == "__main__":

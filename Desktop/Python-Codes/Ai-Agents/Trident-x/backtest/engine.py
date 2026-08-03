@@ -230,27 +230,38 @@ def _install_compute_cache() -> Dict:
     return cache
 
 
-def load_data(symbols: Optional[List[str]] = None) -> Dict:
+def load_data(symbols: Optional[List[str]] = None, days: Optional[int] = None) -> Dict:
+    """Load per-symbol candles. days limits the 5m window to the most recent N*288 bars."""
     symbols = symbols or settings.PAIRS
     data = {}
     for sym in symbols:
-        data[sym] = {
-            "5m": sorted(state_manager.load_candles(sym, settings.PRIMARY_TF, 100000), key=lambda x: x["timestamp"]),
-            "ctx": {tf: sorted(state_manager.load_candles(sym, tf, 100000), key=lambda x: x["timestamp"])
-                    for tf in settings.CONTEXT_TFS},
-        }
+        c5 = sorted(state_manager.load_candles(sym, settings.PRIMARY_TF, 100000), key=lambda x: x["timestamp"])
+        if days:
+            bars = days * 288
+            c5 = c5[-bars:]
+        if c5:
+            first_ts = c5[0]["timestamp"]
+            data[sym] = {
+                "5m": c5,
+                "ctx": {tf: sorted([c for c in state_manager.load_candles(sym, tf, 100000)
+                                    if c["timestamp"] >= first_ts], key=lambda x: x["timestamp"])
+                        for tf in settings.CONTEXT_TFS},
+            }
+        else:
+            data[sym] = {"5m": [], "ctx": {tf: [] for tf in settings.CONTEXT_TFS}}
     return data
 
 
-def run_backtest(symbols: Optional[List[str]] = None, initial: float = 10000.0, force: bool = False):
+def run_backtest(symbols: Optional[List[str]] = None, initial: float = 10000.0, force: bool = False,
+                 days: Optional[int] = None):
     """Portfolio-level backtest. Returns (Sim, stats, rejections, eng_stats, consensus_reasons).
 
     force=True (smoke mode) synthesizes an entry whenever the gate rejects but the
     feature state is valid, so open->partial->exit->PnL bookkeeping gets exercised
-    even when real engine setups are rare.
+    even when real engine setups are rare. days limits the 5m window (e.g. 5 = last 5 days).
     """
     symbols = symbols or settings.PAIRS
-    data = load_data(symbols)
+    data = load_data(symbols, days=days)
     _install_compute_cache()
     sim = Sim(initial)
     rejections: Dict[str, int] = {}
@@ -341,6 +352,6 @@ def _stats(sim: Sim) -> Dict:
     }
 
 
-def run_smoke(symbols: Optional[List[str]] = None, initial: float = 10000.0):
+def run_smoke(symbols: Optional[List[str]] = None, initial: float = 10000.0, days: Optional[int] = None):
     """Smoke run: force entries so the full open->partial->exit->PnL path runs."""
-    return run_backtest(symbols=symbols, initial=initial, force=True)
+    return run_backtest(symbols=symbols, initial=initial, force=True, days=days)
