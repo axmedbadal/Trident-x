@@ -1,39 +1,192 @@
 {
-  "elapsed_s": 291.7,
+  "mode": "smoke",
+  "days": 5,
+  "elapsed_s": 88.2,
   "stats": {
-    "trades": 0,
-    "wins": 0,
-    "losses": 0,
-    "win_rate": 0.0,
-    "total_pnl": 0,
-    "final_equity": 10000.0,
-    "peak": 10000.0,
-    "open_positions": 0,
-    "exit_reasons": {}
+    "trades": 64,
+    "wins": 18,
+    "losses": 46,
+    "win_rate": 0.28125,
+    "total_pnl": -455.5753046687633,
+    "final_equity": 9687.637169198031,
+    "peak": 10000.493539802721,
+    "open_positions": 1,
+    "exit_reasons": {
+      "TIME_STOP": 11,
+      "STOP_LOSS": 30,
+      "TAKE_PROFIT": 13,
+      "MOMENTUM_REVERSAL": 7,
+      "TP5": 3
+    },
+    "engine_metrics": {
+      "smc": {
+        "TRENDING_UP": {
+          "wins": 2,
+          "losses": 18
+        },
+        "MEAN_REVERTING": {
+          "wins": 3,
+          "losses": 5
+        },
+        "DISTRIBUTION": {
+          "wins": 1,
+          "losses": 1
+        },
+        "TRENDING_DOWN": {
+          "wins": 2,
+          "losses": 1
+        },
+        "ACCUMULATION": {
+          "wins": 1,
+          "losses": 0
+        }
+      },
+      "momentum": {
+        "TRENDING_UP": {
+          "wins": 2,
+          "losses": 20
+        },
+        "TRENDING_DOWN": {
+          "wins": 6,
+          "losses": 15
+        },
+        "MEAN_REVERTING": {
+          "wins": 7,
+          "losses": 10
+        },
+        "DISTRIBUTION": {
+          "wins": 2,
+          "losses": 1
+        },
+        "ACCUMULATION": {
+          "wins": 1,
+          "losses": 0
+        }
+      },
+      "mean_reversion": {
+        "TRENDING_DOWN": {
+          "wins": 4,
+          "losses": 14
+        },
+        "TRENDING_UP": {
+          "wins": 0,
+          "losses": 2
+        },
+        "MEAN_REVERTING": {
+          "wins": 4,
+          "losses": 5
+        },
+        "DISTRIBUTION": {
+          "wins": 1,
+          "losses": 0
+        }
+      }
+    }
   },
   "rejections": {
-    "neutral": 1763
+    "neutral": 522
   },
   "engine_activity": {
     "smc": {
-      "eval": 1763,
-      "fired": 7
+      "eval": 587,
+      "fired": 3
     },
     "momentum": {
-      "eval": 1763,
-      "fired": 2
+      "eval": 587,
+      "fired": 0
     },
     "mean_reversion": {
-      "eval": 1763,
-      "fired": 52
+      "eval": 587,
+      "fired": 21
     },
     "sniper": {
-      "eval": 1763,
-      "fired": 3
+      "eval": 587,
+      "fired": 1
     }
   },
   "consensus_neutral_reasons": {
-    "insufficient_engine_agreement": 1763
+    "insufficient_engine_agreement": 587
   },
-  "sample_trades": []
+  "sample_trades": [
+    {
+      "symbol": "SOLUSDT",
+      "dir": "BUY",
+      "pnl": 0.49,
+      "exit": "TIME_STOP",
+      "opened": 1783839900000,
+      "closed": 1783846200000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dir": "BUY",
+      "pnl": -7.99,
+      "exit": "STOP_LOSS",
+      "opened": 1783846200000,
+      "closed": 1783847700000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dir": "SELL",
+      "pnl": -10.6,
+      "exit": "STOP_LOSS",
+      "opened": 1783847700000,
+      "closed": 1783848900000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dir": "BUY",
+      "pnl": -2.44,
+      "exit": "TIME_STOP",
+      "opened": 1783848900000,
+      "closed": 1783855200000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dir": "BUY",
+      "pnl": 1.89,
+      "exit": "TAKE_PROFIT",
+      "opened": 1783855200000,
+      "closed": 1783856700000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dir": "BUY",
+      "pnl": -4.41,
+      "exit": "STOP_LOSS",
+      "opened": 1783856700000,
+      "closed": 1783857300000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dir": "BUY",
+      "pnl": 1.77,
+      "exit": "TAKE_PROFIT",
+      "opened": 1783857300000,
+      "closed": 1783861200000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dir": "BUY",
+      "pnl": -9.23,
+      "exit": "STOP_LOSS",
+      "opened": 1783861200000,
+      "closed": 1783864200000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dir": "SELL",
+      "pnl": -9.88,
+      "exit": "STOP_LOSS",
+      "opened": 1783864200000,
+      "closed": 1783867500000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dir": "BUY",
+      "pnl": -1.11,
+      "exit": "TIME_STOP",
+      "opened": 1783867500000,
+      "closed": 1783873800000
+    }
+  ]
 }
