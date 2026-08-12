@@ -3,9 +3,11 @@
 Run the pipeline over a short window (default = all available, typically ~4-5 days):
 
     python -m backtest.run --days 5                # last 5 days, real signals only
-    python -m backtest.run --smoke --days 3         # force entries over last 3 days
+    python -m backtest.run --smoke --days 3         # software-path test only; never performance evidence
     python -m backtest.run --smoke --symbols SOLUSDT --initial 20000
-    python -m backtest.run --apply-weights          # feed results into consensus weights
+
+`--smoke` deliberately synthesizes entries and its output must not be used for
+strategy selection, performance reporting, or any weight adjustment.
 
 Writes a JSON report to backtest/run.json (or --out).
 """
@@ -24,12 +26,15 @@ from backtest.engine import run_backtest, run_smoke  # noqa: E402
 def main():
     ap = argparse.ArgumentParser(description="Run the TRIDENT-X backtester over a short window.")
     ap.add_argument("--days", type=int, default=None, help="Limit window to last N days (default: all).")
-    ap.add_argument("--smoke", action="store_true", help="Force entries to exercise exits/PnL.")
+    ap.add_argument("--smoke", action="store_true", help="Software-path test only: synthesize entries; never strategy evidence.")
     ap.add_argument("--symbols", nargs="*", default=None, help="Subset of pairs, e.g. SOLUSDT XRPUSDT.")
     ap.add_argument("--initial", type=float, default=10000.0)
-    ap.add_argument("--apply-weights", action="store_true", help="Feed engine metrics into consensus weights.")
+    ap.add_argument("--apply-weights", action="store_true", help="Disabled: live/adaptive weight changes require offline promotion review.")
     ap.add_argument("--out", default="backtest/run.json", help="Output JSON path.")
     args = ap.parse_args()
+
+    if args.apply_weights:
+        ap.error("--apply-weights is disabled. Export research metrics and complete an offline promotion review instead.")
 
     t0 = time.time()
     fn = run_smoke if args.smoke else run_backtest
@@ -39,6 +44,8 @@ def main():
 
     report = {
         "mode": "smoke" if args.smoke else "real",
+        "performance_evidence": not args.smoke,
+        "disclaimer": "Synthetic forced-entry smoke output is a software-path test, not trading-performance evidence." if args.smoke else "Historical results require independent review of data, costs, and validation design.",
         "days": args.days,
         "elapsed_s": round(time.time() - t0, 1),
         "stats": stats,
@@ -58,10 +65,6 @@ def main():
           f"pnl {s['total_pnl']:.2f} | equity {s['final_equity']:.2f} (peak {s['peak']:.2f})")
     print(f"[{report['mode']}] exits: " + ", ".join(f"{k}={v}" for k, v in s["exit_reasons"].items()))
     print(f"report -> {args.out}")
-
-    if args.apply_weights:
-        from backtest.apply_weights import apply_metrics
-        apply_metrics(stats.get("engine_metrics", {}))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 {
   "mode": "smoke",
+  "performance_evidence": false,
+  "disclaimer": "Forced-entry smoke output is a software-path test, not trading-performance evidence. Do not use it for strategy selection, weight changes, or deployment decisions.",
   "days": 5,
   "elapsed_s": 88.2,
   "stats": {
