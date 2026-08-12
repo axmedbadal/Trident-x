@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import sqlite3
 import time
@@ -111,7 +112,45 @@ CREATE TABLE IF NOT EXISTS funding_rates (
     timestamp INTEGER NOT NULL,
     PRIMARY KEY (symbol, timestamp)
 );
+CREATE TABLE IF NOT EXISTS setup_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    timeframe TEXT NOT NULL,
+    regime TEXT NOT NULL,
+    setup_family TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    setup_score REAL NOT NULL,
+    feature_version TEXT NOT NULL,
+    data_quality TEXT NOT NULL,
+    plan_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    UNIQUE(symbol, timestamp, timeframe)
+);
+CREATE TABLE IF NOT EXISTS decision_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER,
+    symbol TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    decision TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    setup_family TEXT NOT NULL,
+    setup_score REAL NOT NULL,
+    model_probability REAL,
+    model_status TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    calibration_status TEXT NOT NULL,
+    risk_status TEXT NOT NULL,
+    binding_reasons_json TEXT NOT NULL,
+    notes_json TEXT NOT NULL,
+    plan_json TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES setup_snapshots(id)
+);
 CREATE INDEX IF NOT EXISTS idx_candles_symbol_tf_ts ON candles(symbol, timeframe, timestamp);
+CREATE INDEX IF NOT EXISTS idx_setup_snapshots_symbol_ts ON setup_snapshots(symbol, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_decision_records_symbol_ts ON decision_records(symbol, timestamp DESC);
 """
 
 
@@ -365,6 +404,97 @@ class StateManager:
                 "INSERT INTO system_log(timestamp,level,module,message,correlation_id) VALUES (?,?,?,?,?)", rows
             )
             conn.commit()
+
+    def save_setup_snapshot(self, snapshot: Any) -> int:
+        """Persist the computed evidence before any execution decision is taken."""
+        payload = snapshot.to_dict() if hasattr(snapshot, "to_dict") else dict(snapshot)
+        with self._connection() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO setup_snapshots(
+                    symbol,timestamp,timeframe,regime,setup_family,direction,setup_score,
+                    feature_version,data_quality,plan_json,evidence_json,snapshot_json
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    payload["symbol"], payload["timestamp"], payload.get("timeframe", "5m"),
+                    payload.get("regime", "UNKNOWN"), payload.get("setup_family", "NONE"),
+                    payload.get("direction", "NEUTRAL"), payload.get("setup_score", 0.0),
+                    payload.get("feature_version", "unknown"), payload.get("data_quality", "UNKNOWN"),
+                    json.dumps(payload.get("plan", {}), sort_keys=True),
+                    json.dumps(payload.get("evidence", []), sort_keys=True),
+                    json.dumps(payload, sort_keys=True),
+                ),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT id FROM setup_snapshots WHERE symbol=? AND timestamp=? AND timeframe=?",
+                (payload["symbol"], payload["timestamp"], payload.get("timeframe", "5m")),
+            ).fetchone()
+            return int(row[0])
+
+    def save_decision_record(self, record: Any, snapshot_id: Optional[int] = None) -> int:
+        """Persist every trade, watch, and no-trade decision with its binding reasons."""
+        payload = record.to_dict() if hasattr(record, "to_dict") else dict(record)
+        with self._connection() as conn:
+            cur = conn.execute(
+                """INSERT INTO decision_records(
+                    snapshot_id,symbol,timestamp,decision,direction,setup_family,setup_score,
+                    model_probability,model_status,model_version,calibration_status,risk_status,
+                    binding_reasons_json,notes_json,plan_json,record_json
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    snapshot_id, payload["symbol"], payload["timestamp"], payload.get("decision", "NO_TRADE"),
+                    payload.get("direction", "NEUTRAL"), payload.get("setup_family", "NONE"),
+                    payload.get("setup_score", 0.0), payload.get("model_probability"),
+                    payload.get("model_status", "MODEL_UNAVAILABLE"), payload.get("model_version", "unavailable"),
+                    payload.get("calibration_status", "UNAVAILABLE"), payload.get("risk_status", "FAIL"),
+                    json.dumps(payload.get("binding_reasons", []), sort_keys=True),
+                    json.dumps(payload.get("notes", []), sort_keys=True),
+                    json.dumps(payload.get("plan", {}), sort_keys=True), json.dumps(payload, sort_keys=True),
+                ),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+    def get_latest_decision(self, symbol: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        with self._connection() as conn:
+            conn.row_factory = sqlite3.Row
+            if symbol:
+                row = conn.execute(
+                    "SELECT * FROM decision_records WHERE symbol=? ORDER BY timestamp DESC, id DESC LIMIT 1", (symbol,)
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM decision_records ORDER BY timestamp DESC, id DESC LIMIT 1").fetchone()
+        if not row:
+            return None
+        out = dict(row)
+        for key in ("binding_reasons_json", "notes_json", "plan_json", "record_json"):
+            out[key[:-5]] = json.loads(out.pop(key))
+        return out
+
+    def get_recent_decisions(self, symbol: Optional[str] = None, limit: int = 30) -> List[Dict[str, Any]]:
+        with self._connection() as conn:
+            conn.row_factory = sqlite3.Row
+            if symbol:
+                rows = conn.execute(
+                    "SELECT * FROM decision_records WHERE symbol=? ORDER BY timestamp DESC, id DESC LIMIT ?", (symbol, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM decision_records ORDER BY timestamp DESC, id DESC LIMIT ?", (limit,)).fetchall()
+        records = []
+        for row in rows:
+            out = dict(row)
+            for key in ("binding_reasons_json", "notes_json", "plan_json", "record_json"):
+                out[key[:-5]] = json.loads(out.pop(key))
+            records.append(out)
+        return records
+
+    def get_research_health(self) -> Dict[str, int]:
+        with self._connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM decision_records").fetchone()[0]
+            eligible = conn.execute("SELECT COUNT(*) FROM decision_records WHERE decision='TRADE'").fetchone()[0]
+            watching = conn.execute("SELECT COUNT(*) FROM decision_records WHERE decision='WATCH'").fetchone()[0]
+            rejected = conn.execute("SELECT COUNT(*) FROM decision_records WHERE decision='NO_TRADE'").fetchone()[0]
+        return {"decisions": total, "trade_eligible": eligible, "watch": watching, "no_trade": rejected}
 
     def prune(self):
         cutoff_candles = int(time.time() * 1000) - 90 * 24 * 60 * 60 * 1000
