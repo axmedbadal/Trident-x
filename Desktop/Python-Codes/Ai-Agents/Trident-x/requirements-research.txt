@@ -1,0 +1,5 @@
+# Optional packages for offline research and test environments only.
+# Do not add these to the live trading runtime by default.
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+tensorflow>=2.15.0
