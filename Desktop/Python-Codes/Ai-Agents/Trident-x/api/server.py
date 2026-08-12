@@ -103,6 +103,17 @@ def api_positions(auth=Depends(_verify_api_key)):
     return state_manager.get_open_positions()
 
 
+@app.get("/api/decisions")
+def api_decisions(symbol: str = None, limit: int = 30, auth=Depends(_verify_api_key)):
+    """Return recorded trade, watch, and no-trade outcomes with their evidence."""
+    return state_manager.get_recent_decisions(symbol, limit)
+
+
+@app.get("/api/research/health")
+def api_research_health(auth=Depends(_verify_api_key)):
+    return state_manager.get_research_health()
+
+
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -166,6 +177,8 @@ def _state_payload():
                     "win_rate": perf.get("win_rate", 0),
                     "disabled": perf.get("disabled", 0),
                 })
+    latest_decision = _last_decision or state_manager.get_latest_decision()
+    research_health = state_manager.get_research_health()
     # Fix 3.5: UTC timestamp
     import datetime
     utc_now = datetime.datetime.now(datetime.timezone.utc)
@@ -186,6 +199,8 @@ def _state_payload():
         "signals": _last_signals,
         "engine_perf": engine_perf,
         "regimes": _last_regimes,
+        "latest_decision": latest_decision,
+        "research_health": research_health,
     }
 
 
@@ -199,6 +214,7 @@ _pair_24h = {}
 _pair_regimes = {}
 _pair_signals = {}
 _pair_confidence = {}
+_last_decision = None
 _paused = False
 
 
@@ -247,3 +263,9 @@ def update_signals(signals: list):
 def update_regimes(regimes: list):
     global _last_regimes
     _last_regimes = regimes[-24:]
+
+
+def update_decision(decision: Dict[str, Any]):
+    """Cache the newest decision for websocket state updates."""
+    global _last_decision
+    _last_decision = decision
