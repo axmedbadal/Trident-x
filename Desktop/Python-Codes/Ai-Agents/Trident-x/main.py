@@ -119,6 +119,9 @@ from features.engineer import features
 # ── ML ─────────────────────────────────────────────────────────────────────
 from ml.regime import regime_detector
 from ml.meta_labeler import meta_labeler
+from ml.calibrated_qualifier import qualifier
+from research.price_action import build_snapshot
+from research.review import review_snapshot
 
 # ── Strategies ─────────────────────────────────────────────────────────────
 from strategies.smc import smc_engine
@@ -141,7 +144,7 @@ from risk.correlation_regime import correlation_regime
 from execution.manager import execution_manager
 
 # ── API ────────────────────────────────────────────────────────────────────
-from api.server import start_server, update_equity, broadcast, update_pair_data, update_risk, update_signals, update_regimes
+from api.server import start_server, update_equity, broadcast, update_pair_data, update_risk, update_signals, update_regimes, update_decision
 
 
 # ── Globals ────────────────────────────────────────────────────────────────
@@ -384,6 +387,38 @@ async def on_candle(candle: Dict):
         data_age = time.time() * 1000 - candle["timestamp"]
         passed, reason = gate.evaluate(combined, feat_5m, mtf_signals, meta_prob, data_age)
 
+    # Canonical price-action evidence and deterministic review. The existing meta-label
+    # probability is not treated as calibrated until an approved research model is registered.
+    snapshot = build_snapshot(
+        symbol=symbol,
+        timestamp=candle["timestamp"],
+        candles=features.buffers.get(f"{symbol}:{settings.PRIMARY_TF}", []),
+        features=feat_5m,
+        regime=regime,
+        regime_confidence=regime_state.confidence,
+        htf_signals=mtf_signals,
+        timeframe=settings.PRIMARY_TF,
+    )
+    snapshot_id = state_manager.save_setup_snapshot(snapshot)
+    qualified_score = qualifier.score(snapshot)
+    decision_record = review_snapshot(
+        snapshot,
+        model_probability=qualified_score.probability,
+        model_status=qualified_score.status,
+        model_version=qualified_score.version,
+        calibration_status=qualified_score.calibration_status,
+        risk_passed=passed,
+        risk_reason=reason,
+    )
+    state_manager.save_decision_record(decision_record, snapshot_id=snapshot_id)
+    update_decision(decision_record.to_dict())
+
+    # Existing consensus can still be monitored, but paper execution is allowed only
+    # after an approved calibrated model and the deterministic review both clear.
+    if decision_record.decision != "TRADE":
+        passed = False
+        reason = ";".join(decision_record.binding_reasons) or f"decision:{decision_record.decision.lower()}"
+
     # Engine auto-disable tracking
     for sig in [sig_smc, sig_mom, sig_mr, sig_sniper]:
         eng_name = sig.get("engine", "")
@@ -470,7 +505,7 @@ async def on_candle(candle: Dict):
 
     # Open new position?
     if not passed or not circuit_breaker.can_trade() or band == "BLACK":
-        await broadcast({"type": "update", "signal": combined, "passed": passed, "reason": reason})
+        await broadcast({"type": "update", "signal": combined, "passed": passed, "reason": reason, "decision": decision_record.to_dict()})
         return
 
     open_count = len(execution_manager.positions)
@@ -493,7 +528,7 @@ async def on_candle(candle: Dict):
             "correlation_id": None,
         })
 
-    await broadcast({"type": "update", "signal": combined, "passed": passed})
+    await broadcast({"type": "update", "signal": combined, "passed": passed, "decision": decision_record.to_dict()})
 
 
 def _htf_direction(feat: Dict[str, float]) -> str:
