@@ -83,6 +83,25 @@ class TridentConfig(BaseSettings):
     SNIPER_ENTRY_MISS_PCT: float = 0.02
     SNIPER_USE_MTF_ALIGNMENT: bool = True
 
+    # Price Action strategy: scans every timeframe + candle structure, fires a 5m signal
+    PRICE_ACTION_ENABLED: bool = True
+    PRICE_ACTION_TFS: List[str] = ["5m", "15m", "1h", "4h"]
+    PRICE_ACTION_STRUCTURE_LOOKBACK: int = 30
+    PRICE_ACTION_MIN_CONFIDENCE: float = 0.55
+    PRICE_ACTION_SWEEP_TOLERANCE: float = 0.002
+    PRICE_ACTION_FVG_LOOKBACK: int = 10
+    PRICE_ACTION_COOLDOWN_SECONDS: int = 180
+
+    # Scalping strategy: HTF context + 5m trigger, executable 5m signal
+    SCALPING_ENABLED: bool = True
+    SCALPING_TFS: List[str] = ["5m", "15m", "1h", "4h"]
+    SCALPING_MIN_VOLUME_RATIO: float = 1.2
+    SCALPING_MAX_ATR_PCT: float = 2.5
+    SCALPING_MIN_ATR_PCT: float = 0.25
+    SCALPING_MIN_CONFIDENCE: float = 0.55
+    SCALPING_PULLBACK_LOOKBACK: int = 8
+    SCALPING_COOLDOWN_SECONDS: int = 120
+
     model_config = ConfigDict(env_file=".env")
 
 

@@ -146,6 +146,8 @@ class StateManager:
             "ALTER TABLE signals ADD COLUMN smc_vote TEXT DEFAULT 'NEUTRAL'",
             "ALTER TABLE signals ADD COLUMN momentum_vote TEXT DEFAULT 'NEUTRAL'",
             "ALTER TABLE signals ADD COLUMN mean_reversion_vote TEXT DEFAULT 'NEUTRAL'",
+            "ALTER TABLE signals ADD COLUMN price_action_vote TEXT DEFAULT 'NEUTRAL'",
+            "ALTER TABLE signals ADD COLUMN scalping_vote TEXT DEFAULT 'NEUTRAL'",
             "ALTER TABLE positions ADD COLUMN signal_id INTEGER DEFAULT NULL",
         ]
         with self._connection() as conn:
@@ -180,13 +182,14 @@ class StateManager:
     def insert_signal(self, signal: Dict[str, Any]) -> int:
         with self._connection() as conn:
             cur = conn.execute(
-                "INSERT INTO signals(symbol,direction,confidence,strength,regime,engines_agreeing,passed_gate,gate_reason,executed,timestamp,meta_prob,sniper_vote,smc_vote,momentum_vote,mean_reversion_vote) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO signals(symbol,direction,confidence,strength,regime,engines_agreeing,passed_gate,gate_reason,executed,timestamp,meta_prob,sniper_vote,smc_vote,momentum_vote,mean_reversion_vote,price_action_vote,scalping_vote) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     signal["symbol"], signal["direction"], signal["confidence"], signal["strength"],
                     signal["regime"], signal["engines_agreeing"], int(signal["passed_gate"]),
                     signal.get("gate_reason"), int(signal["executed"]), signal["timestamp"], signal.get("meta_prob"),
                     signal.get("sniper_vote", "NEUTRAL"), signal.get("smc_vote", "NEUTRAL"),
                     signal.get("momentum_vote", "NEUTRAL"), signal.get("mean_reversion_vote", "NEUTRAL"),
+                    signal.get("price_action_vote", "NEUTRAL"), signal.get("scalping_vote", "NEUTRAL"),
                 ),
             )
             conn.commit()

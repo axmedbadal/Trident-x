@@ -7,14 +7,18 @@ from strategies.momentum import momentum_engine
 from strategies.smc import smc_engine
 from strategies.mean_reversion import mean_reversion_engine
 from strategies.sniper import sniper_engine
+from strategies.price_action import price_action_engine
+from strategies.scalping import scalping_engine
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_WEIGHTS = {
-    "sniper": 0.35,
-    "smc": 0.30,
-    "momentum": 0.20,
-    "mean_reversion": 0.15,
+    "sniper": 0.25,
+    "smc": 0.20,
+    "momentum": 0.15,
+    "mean_reversion": 0.10,
+    "price_action": 0.15,
+    "scalping": 0.15,
 }
 
 REGIMES = ["TRENDING_UP", "TRENDING_DOWN", "MEAN_REVERTING", "ACCUMULATION", "DISTRIBUTION"]
@@ -27,7 +31,7 @@ LOW_WINRATE = 0.45      # below this -> decrease weight
 
 
 class ConsensusEngine:
-    engines = [momentum_engine, smc_engine, mean_reversion_engine, sniper_engine]
+    engines = [momentum_engine, smc_engine, mean_reversion_engine, sniper_engine, price_action_engine, scalping_engine]
 
     # Tier 2: per-regime dynamic weights. Regime -> engine -> weight.
     _regime_weights: Dict[str, Dict[str, float]] = {}

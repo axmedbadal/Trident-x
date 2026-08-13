@@ -46,7 +46,9 @@ class TestSystemSmoke:
         from strategies.momentum import momentum_engine
         from strategies.mean_reversion import mean_reversion_engine
         from strategies.sniper import sniper_engine
-        engines = [smc_engine, momentum_engine, mean_reversion_engine, sniper_engine]
+        from strategies.price_action import price_action_engine
+        from strategies.scalping import scalping_engine
+        engines = [smc_engine, momentum_engine, mean_reversion_engine, sniper_engine, price_action_engine, scalping_engine]
         assert all(e is not None for e in engines)
 
     def test_council_components(self):

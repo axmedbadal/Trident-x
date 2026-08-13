@@ -154,7 +154,7 @@ def _state_payload():
             "confidence": _pair_confidence.get(sym, 0.0),
         })
     engine_perf = []
-    for eng in ["smc", "momentum", "mean_reversion"]:
+    for eng in ["smc", "momentum", "mean_reversion", "sniper", "price_action", "scalping"]:
         for regime in ["TRENDING_UP", "TRENDING_DOWN", "MEAN_REVERTING", "ACCUMULATION", "DISTRIBUTION"]:
             perf = state_manager.get_engine_performance(eng, regime)
             if perf and perf.get("total_signals", 0) > 0:

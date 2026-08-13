@@ -125,6 +125,8 @@ from strategies.smc import smc_engine
 from strategies.momentum import momentum_engine
 from strategies.mean_reversion import mean_reversion_engine
 from strategies.sniper import sniper_engine
+from strategies.price_action import price_action_engine
+from strategies.scalping import scalping_engine
 
 # ── Council ────────────────────────────────────────────────────────────────
 from council.gate import gate
@@ -363,13 +365,17 @@ async def on_candle(candle: Dict):
     sig_mom = momentum_engine.generate(symbol, feat_5m, funding)
     sig_mr = mean_reversion_engine.generate(symbol, feat_5m, funding)
     sig_sniper = sniper_engine.generate(symbol, feat_5m, funding)
+    sig_pa = price_action_engine.generate(symbol, feat_5m, funding)
+    sig_scalp = scalping_engine.generate(symbol, feat_5m, funding)
     sig_smc["permitted_regimes"] = smc_engine.permitted_regimes
     sig_mom["permitted_regimes"] = momentum_engine.permitted_regimes
     sig_mr["permitted_regimes"] = mean_reversion_engine.permitted_regimes
     sig_sniper["permitted_regimes"] = sniper_engine.permitted_regimes
+    sig_pa["permitted_regimes"] = price_action_engine.permitted_regimes
+    sig_scalp["permitted_regimes"] = scalping_engine.permitted_regimes
 
     # Consensus
-    combined = consensus.combine([sig_smc, sig_mom, sig_mr, sig_sniper], regime)
+    combined = consensus.combine([sig_smc, sig_mom, sig_mr, sig_sniper, sig_pa, sig_scalp], regime)
     combined["symbol"] = symbol
 
     # Meta-labeler
@@ -385,7 +391,7 @@ async def on_candle(candle: Dict):
         passed, reason = gate.evaluate(combined, feat_5m, mtf_signals, meta_prob, data_age)
 
     # Engine auto-disable tracking
-    for sig in [sig_smc, sig_mom, sig_mr, sig_sniper]:
+    for sig in [sig_smc, sig_mom, sig_mr, sig_sniper, sig_pa, sig_scalp]:
         eng_name = sig.get("engine", "")
         if eng_name and sig.get("direction") != "NEUTRAL":
             engine_passed = passed and sig.get("direction") == combined.get("direction")
@@ -409,6 +415,8 @@ async def on_candle(candle: Dict):
     sig_mom_dir = sig_mom.get("direction", "NEUTRAL")
     sig_mr_dir = sig_mr.get("direction", "NEUTRAL")
     sig_sniper_dir = sig_sniper.get("direction", "NEUTRAL")
+    sig_pa_dir = sig_pa.get("direction", "NEUTRAL")
+    sig_scalp_dir = sig_scalp.get("direction", "NEUTRAL")
 
     # Persist signal
     signal_id = state_manager.insert_signal({
@@ -427,6 +435,8 @@ async def on_candle(candle: Dict):
         "smc_vote": sig_smc_dir,
         "momentum_vote": sig_mom_dir,
         "mean_reversion_vote": sig_mr_dir,
+        "price_action_vote": sig_pa_dir,
+        "scalping_vote": sig_scalp_dir,
     })
 
     # Broadcast update

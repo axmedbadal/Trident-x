@@ -269,6 +269,8 @@ class ExecutionManager:
                     "smc": sig.get("smc_vote", "NEUTRAL"),
                     "momentum": sig.get("momentum_vote", "NEUTRAL"),
                     "mean_reversion": sig.get("mean_reversion_vote", "NEUTRAL"),
+                    "price_action": sig.get("price_action_vote", "NEUTRAL"),
+                    "scalping": sig.get("scalping_vote", "NEUTRAL"),
                 }
                 pos_dir = pos["direction"]
                 for eng, vote in dir_map.items():

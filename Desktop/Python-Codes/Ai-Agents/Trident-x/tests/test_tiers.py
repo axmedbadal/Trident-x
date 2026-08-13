@@ -18,14 +18,14 @@ class TestConsensusTier2:
     def test_default_regime_weights_exist_for_all_engines(self):
         c = self._fresh_consensus()
         for regime, weights in c.get_weights().items():
-            for eng in ("sniper", "smc", "momentum", "mean_reversion"):
+            for eng in ("sniper", "smc", "momentum", "mean_reversion", "price_action", "scalping"):
                 assert eng in weights
                 assert weights[eng] > 0
 
     def test_get_weight_is_regime_aware(self):
         c = self._fresh_consensus()
-        assert c._get_weight("sniper", "TRENDING_UP") == 0.35
-        assert c._get_weight("smc", "TRENDING_UP") == 0.30
+        assert c._get_weight("sniper", "TRENDING_UP") == 0.25
+        assert c._get_weight("smc", "TRENDING_UP") == 0.20
 
     def test_backtest_metrics_boost_winning_engine(self):
         c = self._fresh_consensus()

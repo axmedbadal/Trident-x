@@ -19,6 +19,8 @@ from strategies.momentum import momentum_engine
 from strategies.smc import smc_engine
 from strategies.mean_reversion import mean_reversion_engine
 from strategies.sniper import sniper_engine
+from strategies.price_action import price_action_engine
+from strategies.scalping import scalping_engine
 from council.gate import gate as gate_engine
 from council.consensus import consensus
 from ml.regime import regime_detector
@@ -290,6 +292,8 @@ def run_backtest(symbols: Optional[List[str]] = None, initial: float = 10000.0, 
                 momentum_engine.generate(sym, feats5, 0.0),
                 mean_reversion_engine.generate(sym, feats5, 0.0),
                 sniper_engine.generate(sym, feats5, 0.0),
+                price_action_engine.generate(sym, feats5, 0.0),
+                scalping_engine.generate(sym, feats5, 0.0),
             ]
             for s in sigs:
                 s["permitted_regimes"] = ALL_REGIMES
