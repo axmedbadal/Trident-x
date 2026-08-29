@@ -26,22 +26,22 @@ class TridentConfig(BaseSettings):
         "SOLUSDT": {
             "eqh_tolerance": 0.005,
             "fvg_distance": 2.5,
-            "sl_mult": 1.5,
-            "tp_mult": 2.5,
+            "sl_mult": 1.0,
+            "tp_mult": 0.75,
             "volatility_threshold": 0.08,
         },
         "XRPUSDT": {
             "eqh_tolerance": 0.004,
             "fvg_distance": 2.0,
-            "sl_mult": 1.5,
-            "tp_mult": 2.0,
+            "sl_mult": 1.0,
+            "tp_mult": 0.75,
             "volatility_threshold": 0.06,
         },
         "ADAUSDT": {
             "eqh_tolerance": 0.003,
             "fvg_distance": 3.5,
-            "sl_mult": 1.5,
-            "tp_mult": 3.0,
+            "sl_mult": 1.0,
+            "tp_mult": 0.75,
             "volatility_threshold": 0.05,
         },
     }
@@ -87,13 +87,13 @@ class TridentConfig(BaseSettings):
     PRICE_ACTION_ENABLED: bool = True
     PRICE_ACTION_TFS: List[str] = ["5m", "15m", "1h", "4h"]
     PRICE_ACTION_STRUCTURE_LOOKBACK: int = 30
-    PRICE_ACTION_MIN_CONFIDENCE: float = 0.55
+    PRICE_ACTION_MIN_CONFIDENCE: float = 0.65
     PRICE_ACTION_SWEEP_TOLERANCE: float = 0.002
     PRICE_ACTION_FVG_LOOKBACK: int = 10
     PRICE_ACTION_COOLDOWN_SECONDS: int = 180
 
     # Scalping strategy: HTF context + 5m trigger, executable 5m signal
-    SCALPING_ENABLED: bool = True
+    SCALPING_ENABLED: bool = False
     SCALPING_TFS: List[str] = ["5m", "15m", "1h", "4h"]
     SCALPING_MIN_VOLUME_RATIO: float = 1.2
     SCALPING_MAX_ATR_PCT: float = 2.5

@@ -11,6 +11,8 @@ class FeatureEngineer:
     def __init__(self, maxlen: int = 500):
         self.buffers: Dict[str, List[Dict]] = {}
         self.maxlen = maxlen
+        self._cache: Dict[tuple, Dict[str, float]] = {}
+        self._cache_max = 2000
 
     def update(self, symbol: str, tf: str, candle: Dict):
         key = f"{symbol}:{tf}"
@@ -33,11 +35,21 @@ class FeatureEngineer:
         return df
 
     def compute(self, symbol: str, tf: str) -> Optional[Dict[str, float]]:
+        buf = self.buffers.get(f"{symbol}:{tf}")
+        if not buf or len(buf) < 50:
+            return None
+        cache_key = (symbol, tf, len(buf), buf[-1].get("timestamp", 0))
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
         df = self._df(symbol, tf)
         if df is None:
             return None
         try:
             feats = self._compute_features(df)
+            if len(self._cache) >= self._cache_max:
+                self._cache.clear()
+            self._cache[cache_key] = feats
             return feats
         except Exception as e:
             logger.error(f"feature compute error {symbol} {tf}: {e}")

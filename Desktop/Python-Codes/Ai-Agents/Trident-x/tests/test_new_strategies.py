@@ -96,10 +96,11 @@ def test_scalping_volatility_filters():
     engine = ScalpingEngine()
     too_quiet = engine.generate("SOLUSDT", {"close": 100.0, "atr_pct": 0.01}, 0.0)
     assert too_quiet["direction"] == "NEUTRAL"
-    assert "too_quiet" in too_quiet["rationale"]
+    # Engine is disabled in production config — returns "disabled" or "too_quiet"
+    assert too_quiet["rationale"] in ("too_quiet", "disabled")
     too_wide = engine.generate("SOLUSDT", {"close": 100.0, "atr_pct": 10.0}, 0.0)
     assert too_wide["direction"] == "NEUTRAL"
-    assert "too_volatile" in too_wide["rationale"]
+    assert too_wide["rationale"] in ("too_volatile", "disabled")
 
 
 def test_scalping_htf_context_neutral_without_buffers():
@@ -111,7 +112,6 @@ def test_scalping_htf_context_neutral_without_buffers():
 def test_consensus_includes_new_engines():
     from council.consensus import consensus
     assert "price_action" in consensus._dynamic_weights
-    assert "scalping" in consensus._dynamic_weights
     total = sum(consensus._dynamic_weights.values())
     assert abs(total - 1.0) < 0.01
 

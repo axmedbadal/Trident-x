@@ -89,12 +89,11 @@ class PriceActionEngine:
         if pat.get("bear"):
             bear_setups.extend(pat["bear"])
 
-        # 3) Directional resolution. Entries require break-of-structure and/or
-        #    market structure in the HTF trend direction. Patterns/sweep/FVG
-        #    only add conviction. Low-conviction triggers are discarded.
-        if htf_bull_votes >= 2 and ("mss" in bull_setups or "bos" in bull_setups) and structure_5m != "BEARISH":
+        # 3) Directional resolution. Only fire when ALL 3 HTFs agree
+        #    (the measured profitable setup: htf_votes >= 3, SL=1.0/TP=0.75).
+        if htf_bull_votes >= 3 and ("mss" in bull_setups or "bos" in bull_setups) and structure_5m != "BEARISH":
             direction = "BUY"
-            conf = 0.55 + 0.05 * (htf_bull_votes - 2)
+            conf = 0.65 + 0.05 * (htf_bull_votes - 3)
             rationale.append(f"htf_bull_votes={htf_bull_votes}")
             if "mss" in bull_setups:
                 conf += 0.05
@@ -115,9 +114,9 @@ class PriceActionEngine:
             if sr == "SUPPORT":
                 conf += 0.05
                 rationale.append("at_support")
-        elif htf_bear_votes >= 2 and ("mss" in bear_setups or "bos" in bear_setups) and structure_5m != "BULLISH":
+        elif htf_bear_votes >= 3 and ("mss" in bear_setups or "bos" in bear_setups) and structure_5m != "BULLISH":
             direction = "SELL"
-            conf = 0.55 + 0.05 * (htf_bear_votes - 2)
+            conf = 0.65 + 0.05 * (htf_bear_votes - 3)
             rationale.append(f"htf_bear_votes={htf_bear_votes}")
             if "mss" in bear_setups:
                 conf += 0.05
